@@ -1,8 +1,9 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
-export default defineConfig({
+export default defineConfig(({ command }) => ({
     plugins: [react()],
+    base: command === 'build' ? '/TruArc/' : '/',
     server: {
         port: 3000,
         host: '0.0.0.0',
@@ -27,4 +28,4 @@ export default defineConfig({
             '@react-three/drei',
         ],
     },
-});
+}));

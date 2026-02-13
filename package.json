@@ -2,11 +2,14 @@
     "name": "truarc",
     "private": true,
     "version": "1.0.0",
+    "homepage": "https://mvrcotc.github.io/TruArc/",
     "type": "module",
     "scripts": {
         "dev": "vite",
         "build": "vite build",
-        "preview": "vite preview"
+        "preview": "vite preview",
+        "predeploy": "npm run build",
+        "deploy": "gh-pages -d dist"
     },
     "dependencies": {
         "@react-three/drei": "^9.105.0",
