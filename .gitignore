@@ -1,0 +1,39 @@
+# Dependencies
+node_modules
+
+# Build
+dist
+dist-ssr
+
+# Environment
+.env
+.env.local
+*.local
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# LiDAR data (large files)
+raw_data/*.laz
+raw_data/*.las
+processed_data/
+
+# Editor
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+.env 2

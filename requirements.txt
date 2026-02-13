@@ -1,0 +1,10 @@
+# TruArc LiDAR Pipeline — Python Dependencies
+# Install with: pip install -r requirements.txt
+# Note: PDAL also requires the system library.
+#   macOS:   brew install pdal  OR  conda install -c conda-forge pdal python-pdal
+#   Ubuntu:  sudo apt install libpdal-dev && pip install pdal
+
+pdal>=3.0
+numpy>=1.24
+requests>=2.31
+boto3>=1.28       # Optional: for Mapbox S3 upload

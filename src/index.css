@@ -1,0 +1,135 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ─── ROOT VARIABLES ─── */
+:root {
+  --truarc-bg: #0a0e17;
+  --truarc-surface: #111827;
+  --truarc-card: #1a2235;
+  --truarc-border: #2a3a52;
+  --truarc-accent: #00e5ff;
+  --truarc-green: #00ff88;
+  --truarc-warn: #ff6b35;
+  --truarc-danger: #ff3366;
+  --truarc-text: #e2e8f0;
+  --truarc-muted: #8892b0;
+}
+
+/* ─── BASE ─── */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: var(--truarc-bg);
+  font-family: 'Inter', system-ui, sans-serif;
+}
+
+/* ─── SCROLLBAR ─── */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: var(--truarc-bg);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--truarc-border);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--truarc-accent);
+}
+
+/* ─── GLASSMORPHISM ─── */
+@layer components {
+  .glass-panel {
+    @apply bg-truarc-card/80 backdrop-blur-xl border border-truarc-border/50 rounded-xl;
+    box-shadow:
+      0 0 1px rgba(0, 229, 255, 0.1),
+      0 8px 32px rgba(0, 0, 0, 0.4),
+      inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  }
+
+  .glass-panel-sm {
+    @apply bg-truarc-card/70 backdrop-blur-lg border border-truarc-border/40 rounded-lg;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+  }
+
+  .cad-text {
+    @apply font-mono text-truarc-accent text-xs tracking-wider uppercase;
+  }
+
+  .cad-label {
+    @apply font-mono text-truarc-muted text-[10px] tracking-[0.2em] uppercase;
+  }
+
+  .cad-value {
+    @apply font-mono text-truarc-text text-sm font-medium tabular-nums;
+  }
+
+  .cad-divider {
+    @apply border-t border-truarc-border/40 my-2;
+  }
+
+  .btn-primary {
+    @apply px-4 py-2 rounded-lg font-medium text-sm transition-all duration-200;
+    @apply bg-truarc-accent/10 text-truarc-accent border border-truarc-accent/30;
+    @apply hover:bg-truarc-accent/20 hover:border-truarc-accent/60 hover:shadow-glow;
+    @apply active:scale-95;
+  }
+
+  .btn-ghost {
+    @apply px-3 py-1.5 rounded-md font-medium text-xs transition-all duration-200;
+    @apply text-truarc-muted hover:text-truarc-text hover:bg-truarc-card;
+  }
+}
+
+/* ─── MAPBOX OVERRIDES ─── */
+.mapboxgl-ctrl-attrib,
+.mapboxgl-ctrl-logo {
+  opacity: 0.3 !important;
+}
+
+.mapboxgl-canvas {
+  outline: none;
+}
+
+/* ─── GRID OVERLAY ─── */
+.tactical-grid {
+  background-image: 
+    linear-gradient(rgba(0, 229, 255, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0, 229, 255, 0.03) 1px, transparent 1px);
+  background-size: 40px 40px;
+  pointer-events: none;
+}
+
+/* ─── FLIGHT PATH GLOW ─── */
+.flight-path-glow {
+  filter: drop-shadow(0 0 6px rgba(0, 229, 255, 0.6));
+}
+
+/* ─── PULSE RING ─── */
+@keyframes pulseRing {
+  0% { transform: scale(0.8); opacity: 1; }
+  100% { transform: scale(2.5); opacity: 0; }
+}
+
+.pulse-ring {
+  animation: pulseRing 1.5s ease-out infinite;
+}
+
+/* ─── LANDING ZONE ─── */
+@keyframes landingGlow {
+  0%, 100% { opacity: 0.3; }
+  50% { opacity: 0.7; }
+}
+
+.landing-zone-pulse {
+  animation: landingGlow 2s ease-in-out infinite;
+}
