@@ -371,6 +371,50 @@ export const COURSE_DATABASE = [
             { num: 18, par: 3, distanceFt: 436, tee: { lng: 17.89840, lat: 59.40290 }, bearing: 310, notes: 'Finish strong at Järva.' },
         ].map(h => ({ ...h, basket: basketFromTee(h.tee.lng, h.tee.lat, h.distanceFt, h.bearing) })),
     },
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // OAK GROVE (HAHAMONGNA) — Pasadena, CA
+    // Source: PDGA, UDisc, dgcoursereview
+    // First tee PDGA: 34.193377, -118.175285
+    // World's first permanent disc golf course (est. 1975)
+    // Par 54, ~5115 ft (18-hole standard layout)
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    {
+        id: 'oak-grove',
+        name: 'Oak Grove',
+        layout: 'Standard 18',
+        location: 'Pasadena, CA',
+        state: 'CA',
+        country: 'USA',
+        center: { lng: -118.1753, lat: 34.1934 },
+        zoom: 17,
+        par: 54,
+        totalDistanceFt: 5015,
+        rating: 4,
+        difficulty: 'Intermediate',
+        tags: ['Historic', 'Woods', 'Technical', 'Free'],
+        description: 'The world\'s first permanent disc golf course, established in 1975 by "Steady" Ed Headrick at Hahamongna Watershed Park. Oak-lined fairways with tight technical lines.',
+        holes: [
+            { num: 1, par: 3, distanceFt: 245, tee: { lng: -118.17528, lat: 34.19338 }, bearing: 220, notes: 'Opening shot through the oaks.' },
+            { num: 2, par: 3, distanceFt: 280, tee: { lng: -118.17560, lat: 34.19310 }, bearing: 250, notes: 'Tight gap between trees.' },
+            { num: 3, par: 3, distanceFt: 310, tee: { lng: -118.17600, lat: 34.19290 }, bearing: 200, notes: 'One of the longer holes. Shape your shot.' },
+            { num: 4, par: 3, distanceFt: 260, tee: { lng: -118.17630, lat: 34.19250 }, bearing: 170, notes: 'Downhill approach through oaks.' },
+            { num: 5, par: 3, distanceFt: 235, tee: { lng: -118.17620, lat: 34.19210 }, bearing: 140, notes: 'Short and technical.' },
+            { num: 6, par: 3, distanceFt: 290, tee: { lng: -118.17590, lat: 34.19180 }, bearing: 110, notes: 'Open field segment.' },
+            { num: 7, par: 3, distanceFt: 320, tee: { lng: -118.17550, lat: 34.19170 }, bearing: 80, notes: 'Longer shot, road may be in play.' },
+            { num: 8, par: 3, distanceFt: 270, tee: { lng: -118.17500, lat: 34.19180 }, bearing: 50, notes: 'Back toward the trees.' },
+            { num: 9, par: 3, distanceFt: 250, tee: { lng: -118.17470, lat: 34.19210 }, bearing: 20, notes: 'Front nine closer. Birdie chance.' },
+            { num: 10, par: 3, distanceFt: 295, tee: { lng: -118.17460, lat: 34.19250 }, bearing: 340, notes: 'Back nine begins. Oak-lined corridor.' },
+            { num: 11, par: 3, distanceFt: 340, tee: { lng: -118.17480, lat: 34.19290 }, bearing: 310, notes: 'Longest hole. Need a big drive.' },
+            { num: 12, par: 3, distanceFt: 265, tee: { lng: -118.17520, lat: 34.19330 }, bearing: 280, notes: 'Navigate the old oaks.' },
+            { num: 13, par: 3, distanceFt: 230, tee: { lng: -118.17570, lat: 34.19340 }, bearing: 250, notes: 'Short placement shot.' },
+            { num: 14, par: 3, distanceFt: 285, tee: { lng: -118.17610, lat: 34.19330 }, bearing: 210, notes: 'Technical through dense canopy.' },
+            { num: 15, par: 3, distanceFt: 300, tee: { lng: -118.17640, lat: 34.19300 }, bearing: 180, notes: 'Straight shot south.' },
+            { num: 16, par: 3, distanceFt: 275, tee: { lng: -118.17640, lat: 34.19260 }, bearing: 150, notes: 'Watch for pedestrians on path.' },
+            { num: 17, par: 3, distanceFt: 255, tee: { lng: -118.17620, lat: 34.19230 }, bearing: 100, notes: 'Penultimate placement.' },
+            { num: 18, par: 3, distanceFt: 310, tee: { lng: -118.17580, lat: 34.19220 }, bearing: 40, notes: 'Finish strong at the birthplace of disc golf.' },
+        ].map(h => ({ ...h, basket: basketFromTee(h.tee.lng, h.tee.lat, h.distanceFt, h.bearing) })),
+    },
 ];
 
 // ─── UTILITY FUNCTIONS ───────────────────────────────────────────
