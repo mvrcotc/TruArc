@@ -14,12 +14,13 @@ import DiscSelector from './components/DiscSelector';
 import FlightStats from './components/FlightStats';
 import CalibrationPanel from './components/CalibrationPanel';
 import CourseSearch from './components/CourseSearch';
+import CourseManager from './components/CourseManager';
 
 export default function App() {
     const mapRef = useRef(null);
 
     // ─── STATE ──────────────────────────────────────────────────
-    const [mode, setMode] = useState('navigate'); // navigate | measure | throw | calibrate
+    const [mode, setMode] = useState('navigate'); // navigate | measure | throw | calibrate | course
     const [selectedDisc, setSelectedDisc] = useState(null);
     const [throwSettings, setThrowSettings] = useState({
         power: 80,
@@ -32,6 +33,10 @@ export default function App() {
     const [flightData, setFlightData] = useState(null);
     const [searchOpen, setSearchOpen] = useState(false);
 
+    // Course state
+    const [activeCourse, setActiveCourse] = useState(null);
+    const [activeHole, setActiveHole] = useState(null);
+
     // ─── KEYBOARD SHORTCUTS ─────────────────────────────────────
     useEffect(() => {
         const handleKey = (e) => {
@@ -43,6 +48,7 @@ export default function App() {
                 case 'm': setMode('measure'); break;
                 case 't': setMode('throw'); break;
                 case 'c': setMode('calibrate'); break;
+                case 'l': setMode('course'); break;
                 case '/':
                 case 'k':
                     if (e.metaKey || e.ctrlKey) {
@@ -54,12 +60,26 @@ export default function App() {
                     setSearchOpen(false);
                     setMode('navigate');
                     break;
+                case 'arrowleft':
+                    if (mode === 'course' && activeCourse && activeHole) {
+                        const prevNum = activeHole.num > 1 ? activeHole.num - 1 : activeCourse.holes.length;
+                        const hole = activeCourse.holes.find(h => h.num === prevNum);
+                        if (hole) handleSelectHole(hole, activeCourse);
+                    }
+                    break;
+                case 'arrowright':
+                    if (mode === 'course' && activeCourse && activeHole) {
+                        const nextNum = activeHole.num < activeCourse.holes.length ? activeHole.num + 1 : 1;
+                        const hole = activeCourse.holes.find(h => h.num === nextNum);
+                        if (hole) handleSelectHole(hole, activeCourse);
+                    }
+                    break;
             }
         };
 
         window.addEventListener('keydown', handleKey);
         return () => window.removeEventListener('keydown', handleKey);
-    }, []);
+    }, [mode, activeCourse, activeHole]);
 
     // ─── HANDLERS ───────────────────────────────────────────────
     const handleModeChange = useCallback((newMode) => {
@@ -84,11 +104,26 @@ export default function App() {
     }, []);
 
     const handleSelectCourse = useCallback((course) => {
+        setActiveCourse(course);
+        setActiveHole(null);
+        mapRef.current?.drawCourseLayout(course);
+    }, []);
+
+    const handleSelectHole = useCallback((hole, course) => {
+        setActiveHole(hole);
+        if (course) setActiveCourse(course);
+        mapRef.current?.highlightHole(hole);
+    }, []);
+
+    const handleFlyTo = useCallback((lng, lat, zoom) => {
+        mapRef.current?.flyTo(lng, lat, zoom);
+    }, []);
+
+    const handleSelectCourseFromSearch = useCallback((course) => {
         mapRef.current?.flyTo(course.lng, course.lat, course.zoom || 17);
     }, []);
 
     const handleCalibrationOffset = useCallback((offset) => {
-        // Will push offset to map layer when LiDAR tileset is loaded
         console.log('Calibration offset updated:', offset);
     }, []);
 
@@ -104,6 +139,8 @@ export default function App() {
                 wind={wind}
                 onMeasure={handleMeasure}
                 onFlightComplete={handleFlightComplete}
+                activeCourse={activeCourse}
+                activeHole={activeHole}
             />
 
             {/* Tactical Grid Overlay */}
@@ -119,7 +156,7 @@ export default function App() {
                 />
             </div>
 
-            {/* Left Panel: Disc Selector or Calibration */}
+            {/* Left Panel: Context-sensitive */}
             <div className="absolute top-24 left-4 z-20">
                 <AnimatePresence mode="wait">
                     {mode === 'throw' && (
@@ -140,6 +177,16 @@ export default function App() {
                             onOffsetChange={handleCalibrationOffset}
                         />
                     )}
+                    {mode === 'course' && (
+                        <CourseManager
+                            key="course-manager"
+                            onSelectCourse={handleSelectCourse}
+                            onSelectHole={handleSelectHole}
+                            onFlyToLocation={handleFlyTo}
+                            activeCourseId={activeCourse?.id}
+                            activeHoleNum={activeHole?.num}
+                        />
+                    )}
                 </AnimatePresence>
             </div>
 
@@ -149,6 +196,8 @@ export default function App() {
                     mode={mode}
                     flightData={flightData}
                     measurement={measurement}
+                    activeHole={activeHole}
+                    activeCourse={activeCourse}
                 />
             </div>
 
@@ -159,7 +208,7 @@ export default function App() {
             <CourseSearch
                 isOpen={searchOpen}
                 onClose={() => setSearchOpen(false)}
-                onSelectCourse={handleSelectCourse}
+                onSelectCourse={handleSelectCourseFromSearch}
             />
         </div>
     );
@@ -173,6 +222,7 @@ function CornerIndicators({ mode }) {
         measure: 'MSR',
         throw: 'THR',
         calibrate: 'CAL',
+        course: 'CRS',
     };
 
     const modeColors = {
@@ -180,6 +230,7 @@ function CornerIndicators({ mode }) {
         measure: '#00e5ff',
         throw: '#ff6b35',
         calibrate: '#00ff88',
+        course: '#aa66ff',
     };
 
     return (

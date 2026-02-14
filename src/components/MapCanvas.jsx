@@ -2,7 +2,7 @@
  * ╔══════════════════════════════════════════════════════════════════╗
  * ║  MapCanvas — Mapbox GL JS v3 + Three.js Integration            ║
  * ║  Renders 3D terrain with satellite imagery, flight paths,       ║
- * ║  and LiDAR overlays. Uses Mapbox's native 3D terrain.          ║
+ * ║  course layouts, and LiDAR overlays.                            ║
  * ╚══════════════════════════════════════════════════════════════════╝
  */
 
@@ -14,15 +14,18 @@ import {
     measure3DDistance,
     smoothBezierCurve,
 } from '../utils/flightPhysics';
+import { courseToGeoJSON } from '../data/courses';
 
 const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN;
 
-const MapCanvas = forwardRef(({ onMeasure, onFlightComplete, selectedDisc, throwSettings, wind, mode }, ref) => {
+const MapCanvas = forwardRef(({ onMeasure, onFlightComplete, selectedDisc, throwSettings, wind, mode, activeCourse, activeHole }, ref) => {
     const containerRef = useRef(null);
     const mapRef = useRef(null);
     const markersRef = useRef([]);
+    const holeMarkersRef = useRef([]);
     const flightSourceAdded = useRef(false);
     const landingSourceAdded = useRef(false);
+    const courseLayerAdded = useRef(false);
     const [mapLoaded, setMapLoaded] = useState(false);
     const teePointRef = useRef(null);
     const targetPointRef = useRef(null);
@@ -44,6 +47,12 @@ const MapCanvas = forwardRef(({ onMeasure, onFlightComplete, selectedDisc, throw
         simulateThrow() {
             doFlightSimulation();
         },
+        drawCourseLayout(course) {
+            drawCourse(course);
+        },
+        highlightHole(hole) {
+            highlightActiveHole(hole);
+        },
     }));
 
     // ─── INITIALIZE MAP ─────────────────────────────────────────
@@ -54,7 +63,7 @@ const MapCanvas = forwardRef(({ onMeasure, onFlightComplete, selectedDisc, throw
         const map = new mapboxgl.Map({
             container: containerRef.current,
             style: 'mapbox://styles/mapbox/satellite-streets-v12',
-            center: [-71.9365, 42.2480], // Default: Maple Hill, MA
+            center: [-71.8960, 42.2765], // Default: Maple Hill (corrected)
             zoom: 17,
             pitch: 60,
             bearing: -20,
@@ -191,7 +200,6 @@ const MapCanvas = forwardRef(({ onMeasure, onFlightComplete, selectedDisc, throw
             selectedDisc,
             throwSettings || { power: 80, aimAngle: 0, releaseAngle: 0, noseAngle: 12 },
             wind || { speed: 0, direction: 0 },
-            // Optionally pass terrain query function here
             null,
         );
 
@@ -214,6 +222,200 @@ const MapCanvas = forwardRef(({ onMeasure, onFlightComplete, selectedDisc, throw
             landing,
             wgs84Points,
         });
+    }
+
+    // ─── COURSE LAYOUT DRAWING ─────────────────────────────────
+
+    function drawCourse(course) {
+        const map = mapRef.current;
+        if (!map) return;
+
+        // Clear any existing course layers
+        clearCourseLayout();
+
+        const geojson = courseToGeoJSON(course.id);
+        if (!geojson) return;
+
+        // Add fairway lines source
+        const fairwayFeatures = geojson.features.filter(f => f.properties.type === 'fairway');
+        map.addSource('course-fairways', {
+            type: 'geojson',
+            data: { type: 'FeatureCollection', features: fairwayFeatures },
+        });
+
+        // Fairway glow
+        map.addLayer({
+            id: 'course-fairways-glow',
+            type: 'line',
+            source: 'course-fairways',
+            paint: {
+                'line-color': '#aa66ff',
+                'line-width': 6,
+                'line-blur': 5,
+                'line-opacity': 0.2,
+            },
+        });
+
+        // Fairway line
+        map.addLayer({
+            id: 'course-fairways-line',
+            type: 'line',
+            source: 'course-fairways',
+            paint: {
+                'line-color': '#aa66ff',
+                'line-width': 2,
+                'line-dasharray': [6, 4],
+                'line-opacity': 0.6,
+            },
+        });
+
+        // Active hole highlight source (empty initially)
+        map.addSource('course-active-hole', {
+            type: 'geojson',
+            data: { type: 'FeatureCollection', features: [] },
+        });
+
+        map.addLayer({
+            id: 'course-active-hole-glow',
+            type: 'line',
+            source: 'course-active-hole',
+            paint: {
+                'line-color': '#00e5ff',
+                'line-width': 10,
+                'line-blur': 6,
+                'line-opacity': 0.4,
+            },
+        });
+
+        map.addLayer({
+            id: 'course-active-hole-line',
+            type: 'line',
+            source: 'course-active-hole',
+            paint: {
+                'line-color': '#00e5ff',
+                'line-width': 3,
+                'line-opacity': 0.9,
+            },
+        });
+
+        // Add tee and basket markers via DOM markers
+        clearHoleMarkers();
+        course.holes.forEach(hole => {
+            // Tee marker
+            const teeEl = createHoleMarker(hole.num, 'tee');
+            const teeMarker = new mapboxgl.Marker({ element: teeEl, anchor: 'center' })
+                .setLngLat([hole.tee.lng, hole.tee.lat])
+                .addTo(map);
+            holeMarkersRef.current.push(teeMarker);
+
+            // Basket marker
+            const basketEl = createHoleMarker(hole.num, 'basket');
+            const basketMarker = new mapboxgl.Marker({ element: basketEl, anchor: 'center' })
+                .setLngLat([hole.basket.lng, hole.basket.lat])
+                .addTo(map);
+            holeMarkersRef.current.push(basketMarker);
+        });
+
+        courseLayerAdded.current = true;
+    }
+
+    function createHoleMarker(holeNum, type) {
+        const el = document.createElement('div');
+        el.className = 'truarc-hole-marker';
+
+        const color = type === 'tee' ? '#aa66ff' : '#00ff88';
+        const icon = type === 'tee' ? `${holeNum}` : '🏁';
+        const size = type === 'tee' ? '28px' : '22px';
+        const fontSize = type === 'tee' ? '10px' : '11px';
+
+        el.innerHTML = `
+            <div style="
+                width: ${size}; height: ${size}; border-radius: ${type === 'tee' ? '4px' : '50%'};
+                background: ${color}20; border: 1.5px solid ${color}80;
+                display: flex; align-items: center; justify-content: center;
+                font-family: 'JetBrains Mono', monospace; font-size: ${fontSize};
+                color: ${color}; font-weight: 700;
+                box-shadow: 0 0 8px ${color}30;
+                backdrop-filter: blur(4px);
+                transition: all 0.2s ease;
+                cursor: pointer;
+            ">${icon}</div>
+        `;
+
+        el.addEventListener('mouseenter', () => {
+            el.firstElementChild.style.transform = 'scale(1.2)';
+            el.firstElementChild.style.boxShadow = `0 0 16px ${color}60`;
+        });
+        el.addEventListener('mouseleave', () => {
+            el.firstElementChild.style.transform = 'scale(1)';
+            el.firstElementChild.style.boxShadow = `0 0 8px ${color}30`;
+        });
+
+        return el;
+    }
+
+    function highlightActiveHole(hole) {
+        const map = mapRef.current;
+        if (!map || !map.getSource('course-active-hole')) return;
+
+        // Update the active hole line
+        map.getSource('course-active-hole').setData({
+            type: 'FeatureCollection',
+            features: [{
+                type: 'Feature',
+                geometry: {
+                    type: 'LineString',
+                    coordinates: [
+                        [hole.tee.lng, hole.tee.lat],
+                        [hole.basket.lng, hole.basket.lat],
+                    ],
+                },
+                properties: {
+                    holeNum: hole.num,
+                    distance: hole.distanceFt,
+                },
+            }],
+        });
+
+        // Fly to the hole with an optimal viewing angle
+        const midLng = (hole.tee.lng + hole.basket.lng) / 2;
+        const midLat = (hole.tee.lat + hole.basket.lat) / 2;
+
+        // Calculate bearing from tee to basket for optimal camera angle
+        const dx = (hole.basket.lng - hole.tee.lng) * Math.cos(hole.tee.lat * (Math.PI / 180));
+        const dy = hole.basket.lat - hole.tee.lat;
+        let bearing = Math.atan2(dx, dy) * (180 / Math.PI);
+
+        map.flyTo({
+            center: [midLng, midLat],
+            zoom: 18.5,
+            pitch: 65,
+            bearing: bearing - 30, // Offset for a cinematic angle
+            duration: 1800,
+        });
+    }
+
+    function clearCourseLayout() {
+        const map = mapRef.current;
+        if (!map) return;
+
+        // Remove layers
+        ['course-fairways-glow', 'course-fairways-line', 'course-active-hole-glow', 'course-active-hole-line'].forEach(id => {
+            if (map.getLayer(id)) map.removeLayer(id);
+        });
+
+        // Remove sources
+        ['course-fairways', 'course-active-hole'].forEach(id => {
+            if (map.getSource(id)) map.removeSource(id);
+        });
+
+        clearHoleMarkers();
+        courseLayerAdded.current = false;
+    }
+
+    function clearHoleMarkers() {
+        holeMarkersRef.current.forEach(m => m.remove());
+        holeMarkersRef.current = [];
     }
 
     // ─── DRAWING HELPERS ───────────────────────────────────────
@@ -375,7 +577,6 @@ const MapCanvas = forwardRef(({ onMeasure, onFlightComplete, selectedDisc, throw
 
     function drawLandingZone(map, landing) {
         const id = 'landing-zone';
-        // Circle 1: ~10m radius, Circle 2: ~20m radius
         const circle1Points = generateCircle(landing.lng, landing.lat, 10, 36);
         const circle2Points = generateCircle(landing.lng, landing.lat, 20, 36);
 
@@ -442,11 +643,8 @@ const MapCanvas = forwardRef(({ onMeasure, onFlightComplete, selectedDisc, throw
     }
 
     // ─── LIDAR LAYER ────────────────────────────────────────────
-    // Accept a Mapbox tileset ID to render LiDAR data as a 3D layer
     useEffect(() => {
         if (!mapLoaded || !mapRef.current) return;
-        // If props provide a lidarTilesetId, add it
-        // This will be expanded in Part 3 integration
     }, [mapLoaded]);
 
     // ─── RENDER ─────────────────────────────────────────────────

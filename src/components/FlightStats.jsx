@@ -4,9 +4,9 @@
 
 import React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Target, ArrowDown, ArrowUp, Ruler, Mountain, Zap, Timer } from 'lucide-react';
+import { Target, ArrowDown, ArrowUp, Ruler, Mountain, Zap, Timer, Flag, Navigation, MapPin } from 'lucide-react';
 
-export default function FlightStats({ flightData, measurement, mode }) {
+export default function FlightStats({ flightData, measurement, mode, activeHole, activeCourse }) {
     return (
         <AnimatePresence mode="wait">
             {mode === 'measure' && measurement && (
@@ -15,7 +15,106 @@ export default function FlightStats({ flightData, measurement, mode }) {
             {mode === 'throw' && flightData && (
                 <FlightDisplay key="flight" data={flightData} />
             )}
+            {mode === 'course' && activeHole && (
+                <HoleDisplay key="hole" hole={activeHole} course={activeCourse} />
+            )}
         </AnimatePresence>
+    );
+}
+
+// ─── HOLE INFO DISPLAY ──────────────────────────────────────
+
+function HoleDisplay({ hole, course }) {
+    const parColor = hole.par >= 4 ? '#ff3366' : '#00e5ff';
+
+    return (
+        <motion.div
+            initial={{ y: 60, opacity: 0, scale: 0.95 }}
+            animate={{ y: 0, opacity: 1, scale: 1 }}
+            exit={{ y: 60, opacity: 0, scale: 0.95 }}
+            transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+            className="glass-panel p-4 min-w-[340px]"
+        >
+            <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                    <Flag size={14} className="text-truarc-accent" />
+                    <span className="cad-text">
+                        Hole {hole.num}
+                    </span>
+                    {course && (
+                        <span className="text-[10px] font-mono text-truarc-muted/60">
+                            — {course.name}
+                        </span>
+                    )}
+                </div>
+                <span
+                    className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full"
+                    style={{
+                        background: parColor + '15',
+                        color: parColor,
+                    }}
+                >
+                    Par {hole.par}
+                </span>
+            </div>
+
+            <div className="grid grid-cols-3 gap-3">
+                <StatBlock
+                    label="Distance"
+                    value={hole.distanceFt}
+                    unit="ft"
+                    subValue={`${(hole.distanceFt * 0.3048).toFixed(0)}m`}
+                    color="#00e5ff"
+                    icon={<Ruler size={12} />}
+                    large
+                />
+
+                <StatBlock
+                    label="Bearing"
+                    value={hole.bearing || '—'}
+                    unit="°"
+                    color="#aa66ff"
+                    icon={<Navigation size={12} />}
+                    large
+                />
+
+                <StatBlock
+                    label="Par"
+                    value={hole.par}
+                    unit=""
+                    color={parColor}
+                    icon={<Target size={12} />}
+                    large
+                />
+            </div>
+
+            {hole.notes && (
+                <div className="mt-3 pt-2 border-t border-truarc-border/30">
+                    <div className="text-[10px] text-truarc-muted/80 leading-relaxed italic">
+                        "{hole.notes}"
+                    </div>
+                </div>
+            )}
+
+            <div className="mt-2 pt-2 border-t border-truarc-border/20">
+                <div className="flex items-center gap-4">
+                    <div className="flex items-center gap-1">
+                        <div className="w-2 h-2 rounded-sm" style={{ background: '#aa66ff' }} />
+                        <span className="text-[9px] font-mono text-truarc-muted/60">TEE</span>
+                        <span className="text-[9px] font-mono text-truarc-muted/40">
+                            {hole.tee.lat.toFixed(5)}, {hole.tee.lng.toFixed(5)}
+                        </span>
+                    </div>
+                    <div className="flex items-center gap-1">
+                        <div className="w-2 h-2 rounded-full" style={{ background: '#00ff88' }} />
+                        <span className="text-[9px] font-mono text-truarc-muted/60">BASKET</span>
+                        <span className="text-[9px] font-mono text-truarc-muted/40">
+                            {hole.basket.lat.toFixed(5)}, {hole.basket.lng.toFixed(5)}
+                        </span>
+                    </div>
+                </div>
+            </div>
+        </motion.div>
     );
 }
 

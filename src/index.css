@@ -23,7 +23,9 @@
   box-sizing: border-box;
 }
 
-html, body, #root {
+html,
+body,
+#root {
   width: 100%;
   height: 100%;
   overflow: hidden;
@@ -35,13 +37,16 @@ html, body, #root {
 ::-webkit-scrollbar {
   width: 6px;
 }
+
 ::-webkit-scrollbar-track {
   background: var(--truarc-bg);
 }
+
 ::-webkit-scrollbar-thumb {
   background: var(--truarc-border);
   border-radius: 3px;
 }
+
 ::-webkit-scrollbar-thumb:hover {
   background: var(--truarc-accent);
 }
@@ -102,7 +107,7 @@ html, body, #root {
 
 /* ─── GRID OVERLAY ─── */
 .tactical-grid {
-  background-image: 
+  background-image:
     linear-gradient(rgba(0, 229, 255, 0.03) 1px, transparent 1px),
     linear-gradient(90deg, rgba(0, 229, 255, 0.03) 1px, transparent 1px);
   background-size: 40px 40px;
@@ -116,8 +121,15 @@ html, body, #root {
 
 /* ─── PULSE RING ─── */
 @keyframes pulseRing {
-  0% { transform: scale(0.8); opacity: 1; }
-  100% { transform: scale(2.5); opacity: 0; }
+  0% {
+    transform: scale(0.8);
+    opacity: 1;
+  }
+
+  100% {
+    transform: scale(2.5);
+    opacity: 0;
+  }
 }
 
 .pulse-ring {
@@ -126,10 +138,44 @@ html, body, #root {
 
 /* ─── LANDING ZONE ─── */
 @keyframes landingGlow {
-  0%, 100% { opacity: 0.3; }
-  50% { opacity: 0.7; }
+
+  0%,
+  100% {
+    opacity: 0.3;
+  }
+
+  50% {
+    opacity: 0.7;
+  }
 }
 
 .landing-zone-pulse {
   animation: landingGlow 2s ease-in-out infinite;
+}
+
+/* ─── CUSTOM SCROLLBAR (for panels) ─── */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 4px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: var(--truarc-border);
+  border-radius: 2px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: var(--truarc-accent);
+}
+
+/* ─── HOLE MARKER TRANSITIONS ─── */
+.truarc-hole-marker {
+  transition: transform 0.2s ease;
+}
+
+.truarc-hole-marker:hover {
+  z-index: 100 !important;
 }

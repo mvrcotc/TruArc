@@ -12,10 +12,12 @@ import {
     MapPin,
     RotateCcw,
     Search,
+    Layers,
 } from 'lucide-react';
 
 const MODES = [
     { id: 'navigate', icon: MapPin, label: 'Navigate', shortcut: 'N' },
+    { id: 'course', icon: Layers, label: 'Courses', shortcut: 'L' },
     { id: 'measure', icon: Ruler, label: 'Measure', shortcut: 'M' },
     { id: 'throw', icon: Disc3, label: 'Throw', shortcut: 'T' },
     { id: 'calibrate', icon: SlidersHorizontal, label: 'Calibrate', shortcut: 'C' },
@@ -43,8 +45,8 @@ export default function Toolbar({ mode, onModeChange, onReset, onSearch }) {
                     key={id}
                     onClick={() => onModeChange(id)}
                     className={`relative flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all duration-200 ${mode === id
-                            ? 'text-truarc-accent bg-truarc-accent/10 border border-truarc-accent/30'
-                            : 'text-truarc-muted hover:text-truarc-text hover:bg-truarc-card/50'
+                        ? 'text-truarc-accent bg-truarc-accent/10 border border-truarc-accent/30'
+                        : 'text-truarc-muted hover:text-truarc-text hover:bg-truarc-card/50'
                         }`}
                 >
                     <Icon size={14} />
