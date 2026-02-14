@@ -6,7 +6,13 @@ export default defineConfig(({ command }) => ({
     base: command === 'build' ? '/TruArc/' : '/',
     server: {
         port: 3000,
-        host: '0.0.0.0',
+        host: '127.0.0.1',
+        hmr: {
+            overlay: true,
+        },
+        watch: {
+            usePolling: false,
+        },
     },
     resolve: {
         alias: {
