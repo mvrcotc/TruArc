@@ -374,46 +374,48 @@ export const COURSE_DATABASE = [
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // OAK GROVE (HAHAMONGNA) — Pasadena, CA
-    // Source: PDGA, UDisc, dgcoursereview
-    // First tee PDGA: 34.193377, -118.175285
+    // Source: UDisc GPS data (scraped), PDGA, user local knowledge
+    // Tee & basket coords: UDisc "18 Hole Post WTO Layout" (A pins)
     // World's first permanent disc golf course (est. 1975)
-    // Par 54, ~5115 ft (18-hole standard layout)
+    // Par 54, 4442 ft (all par 3, 18 holes)
+    // Flow: H1 plays W from backstop, front 9 loops S, back 9 loops N/E
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     {
         id: 'oak-grove',
         name: 'Oak Grove',
-        layout: 'Standard 18',
+        layout: '18 Hole (Post WTO)',
         location: 'Pasadena, CA',
         state: 'CA',
         country: 'USA',
-        center: { lng: -118.1753, lat: 34.1934 },
+        center: { lng: -118.1755, lat: 34.1935 },
         zoom: 17,
         par: 54,
-        totalDistanceFt: 5015,
+        totalDistanceFt: 4442,
         rating: 4,
         difficulty: 'Intermediate',
         tags: ['Historic', 'Woods', 'Technical', 'Free'],
         description: 'The world\'s first permanent disc golf course, established in 1975 by "Steady" Ed Headrick at Hahamongna Watershed Park. Oak-lined fairways with tight technical lines.',
         holes: [
-            { num: 1, par: 3, distanceFt: 245, tee: { lng: -118.17528, lat: 34.19338 }, bearing: 220, notes: 'Opening shot through the oaks.' },
-            { num: 2, par: 3, distanceFt: 280, tee: { lng: -118.17560, lat: 34.19310 }, bearing: 250, notes: 'Tight gap between trees.' },
-            { num: 3, par: 3, distanceFt: 310, tee: { lng: -118.17600, lat: 34.19290 }, bearing: 200, notes: 'One of the longer holes. Shape your shot.' },
-            { num: 4, par: 3, distanceFt: 260, tee: { lng: -118.17630, lat: 34.19250 }, bearing: 170, notes: 'Downhill approach through oaks.' },
-            { num: 5, par: 3, distanceFt: 235, tee: { lng: -118.17620, lat: 34.19210 }, bearing: 140, notes: 'Short and technical.' },
-            { num: 6, par: 3, distanceFt: 290, tee: { lng: -118.17590, lat: 34.19180 }, bearing: 110, notes: 'Open field segment.' },
-            { num: 7, par: 3, distanceFt: 320, tee: { lng: -118.17550, lat: 34.19170 }, bearing: 80, notes: 'Longer shot, road may be in play.' },
-            { num: 8, par: 3, distanceFt: 270, tee: { lng: -118.17500, lat: 34.19180 }, bearing: 50, notes: 'Back toward the trees.' },
-            { num: 9, par: 3, distanceFt: 250, tee: { lng: -118.17470, lat: 34.19210 }, bearing: 20, notes: 'Front nine closer. Birdie chance.' },
-            { num: 10, par: 3, distanceFt: 295, tee: { lng: -118.17460, lat: 34.19250 }, bearing: 340, notes: 'Back nine begins. Oak-lined corridor.' },
-            { num: 11, par: 3, distanceFt: 340, tee: { lng: -118.17480, lat: 34.19290 }, bearing: 310, notes: 'Longest hole. Need a big drive.' },
-            { num: 12, par: 3, distanceFt: 265, tee: { lng: -118.17520, lat: 34.19330 }, bearing: 280, notes: 'Navigate the old oaks.' },
-            { num: 13, par: 3, distanceFt: 230, tee: { lng: -118.17570, lat: 34.19340 }, bearing: 250, notes: 'Short placement shot.' },
-            { num: 14, par: 3, distanceFt: 285, tee: { lng: -118.17610, lat: 34.19330 }, bearing: 210, notes: 'Technical through dense canopy.' },
-            { num: 15, par: 3, distanceFt: 300, tee: { lng: -118.17640, lat: 34.19300 }, bearing: 180, notes: 'Straight shot south.' },
-            { num: 16, par: 3, distanceFt: 275, tee: { lng: -118.17640, lat: 34.19260 }, bearing: 150, notes: 'Watch for pedestrians on path.' },
-            { num: 17, par: 3, distanceFt: 255, tee: { lng: -118.17620, lat: 34.19230 }, bearing: 100, notes: 'Penultimate placement.' },
-            { num: 18, par: 3, distanceFt: 310, tee: { lng: -118.17580, lat: 34.19220 }, bearing: 40, notes: 'Finish strong at the birthplace of disc golf.' },
-        ].map(h => ({ ...h, basket: basketFromTee(h.tee.lng, h.tee.lat, h.distanceFt, h.bearing) })),
+            // All coordinates verified from UDisc GPS data — main tees + A-pin baskets
+            { num: 1, par: 3, distanceFt: 269, tee: { lng: -118.17608, lat: 34.19325 }, basket: { lng: -118.17695, lat: 34.19340 }, bearing: 282, notes: 'Opening shot west through the oaks. Tee behind baseball backstop.' },
+            { num: 2, par: 3, distanceFt: 235, tee: { lng: -118.17721, lat: 34.19308 }, basket: { lng: -118.17771, lat: 34.19259 }, bearing: 220, notes: 'Southwest off tee. Tight gap between oaks.' },
+            { num: 3, par: 3, distanceFt: 230, tee: { lng: -118.17731, lat: 34.19249 }, basket: { lng: -118.17760, lat: 34.19191 }, bearing: 203, notes: 'Southward. Shape around the trees.' },
+            { num: 4, par: 3, distanceFt: 269, tee: { lng: -118.17748, lat: 34.19186 }, basket: { lng: -118.17742, lat: 34.19112 }, bearing: 176, notes: 'Due south through the grove.' },
+            { num: 5, par: 3, distanceFt: 161, tee: { lng: -118.17800, lat: 34.19074 }, basket: { lng: -118.17779, lat: 34.19033 }, bearing: 157, notes: 'Shortest hole. Technical approach.' },
+            { num: 6, par: 3, distanceFt: 220, tee: { lng: -118.17711, lat: 34.19098 }, basket: { lng: -118.17672, lat: 34.19149 }, bearing: 33, notes: 'Turn north. Back toward center.' },
+            { num: 7, par: 3, distanceFt: 399, tee: { lng: -118.17662, lat: 34.19136 }, basket: { lng: -118.17594, lat: 34.19229 }, bearing: 31, notes: 'Longest hole on course. Big drive NE.' },
+            { num: 8, par: 3, distanceFt: 248, tee: { lng: -118.17587, lat: 34.19217 }, basket: { lng: -118.17569, lat: 34.19283 }, bearing: 13, notes: 'North toward the upper grove.' },
+            { num: 9, par: 3, distanceFt: 205, tee: { lng: -118.17536, lat: 34.19344 }, basket: { lng: -118.17504, lat: 34.19393 }, bearing: 28, notes: 'Front nine closer. Uphill NE.' },
+            { num: 10, par: 3, distanceFt: 217, tee: { lng: -118.17559, lat: 34.19389 }, basket: { lng: -118.17549, lat: 34.19448 }, bearing: 8, notes: 'Back nine begins. Due north.' },
+            { num: 11, par: 3, distanceFt: 307, tee: { lng: -118.17582, lat: 34.19489 }, basket: { lng: -118.17492, lat: 34.19450 }, bearing: 117, notes: 'Southeast through trees. Long approach.' },
+            { num: 12, par: 3, distanceFt: 226, tee: { lng: -118.17488, lat: 34.19419 }, basket: { lng: -118.17413, lat: 34.19418 }, bearing: 91, notes: 'Due east. Navigate the old oaks.' },
+            { num: 13, par: 3, distanceFt: 278, tee: { lng: -118.17389, lat: 34.19414 }, basket: { lng: -118.17298, lat: 34.19403 }, bearing: 99, notes: 'Continue east. Placement shot.' },
+            { num: 14, par: 3, distanceFt: 299, tee: { lng: -118.17287, lat: 34.19401 }, basket: { lng: -118.17278, lat: 34.19483 }, bearing: 6, notes: 'Due north. Open field shot.' },
+            { num: 15, par: 3, distanceFt: 225, tee: { lng: -118.17300, lat: 34.19501 }, basket: { lng: -118.17329, lat: 34.19444 }, bearing: 203, notes: 'Turn back southwest.' },
+            { num: 16, par: 3, distanceFt: 225, tee: { lng: -118.17293, lat: 34.19394 }, basket: { lng: -118.17352, lat: 34.19431 }, bearing: 307, notes: 'Northwest. Watch for pedestrians.' },
+            { num: 17, par: 3, distanceFt: 205, tee: { lng: -118.17432, lat: 34.19401 }, basket: { lng: -118.17479, lat: 34.19360 }, bearing: 223, notes: 'Southwest toward the finish.' },
+            { num: 18, par: 3, distanceFt: 224, tee: { lng: -118.17498, lat: 34.19383 }, basket: { lng: -118.17520, lat: 34.19325 }, bearing: 198, notes: 'Finish at the birthplace of disc golf.' },
+        ],
     },
 ];
 
