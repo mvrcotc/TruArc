@@ -9,21 +9,19 @@ import {
     Ruler,
     Disc3,
     SlidersHorizontal,
-    MapPin,
     RotateCcw,
-    Search,
     Layers,
 } from 'lucide-react';
+import FirebaseAuthBar from './FirebaseAuthBar';
 
 const MODES = [
-    { id: 'navigate', icon: MapPin, label: 'Navigate', shortcut: 'N' },
     { id: 'course', icon: Layers, label: 'Courses', shortcut: 'L' },
     { id: 'measure', icon: Ruler, label: 'Measure', shortcut: 'M' },
     { id: 'throw', icon: Disc3, label: 'Throw', shortcut: 'T' },
     { id: 'calibrate', icon: SlidersHorizontal, label: 'Calibrate', shortcut: 'C' },
 ];
 
-export default function Toolbar({ mode, onModeChange, onReset, onSearch }) {
+export default function Toolbar({ mode, onModeChange, onReset }) {
     return (
         <motion.div
             initial={{ y: -60, opacity: 0 }}
@@ -43,7 +41,7 @@ export default function Toolbar({ mode, onModeChange, onReset, onSearch }) {
             {MODES.map(({ id, icon: Icon, label, shortcut }) => (
                 <button
                     key={id}
-                    onClick={() => onModeChange(id)}
+                    onClick={() => onModeChange(mode === id ? 'navigate' : id)}
                     className={`relative flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all duration-200 ${mode === id
                         ? 'text-truarc-accent bg-truarc-accent/10 border border-truarc-accent/30'
                         : 'text-truarc-muted hover:text-truarc-text hover:bg-truarc-card/50'
@@ -68,14 +66,7 @@ export default function Toolbar({ mode, onModeChange, onReset, onSearch }) {
             {/* Spacer */}
             <div className="flex-1" />
 
-            {/* Search */}
-            <button
-                onClick={onSearch}
-                className="btn-ghost flex items-center gap-1.5"
-            >
-                <Search size={14} />
-                <span className="hidden sm:inline">Search Course</span>
-            </button>
+            <FirebaseAuthBar />
 
             {/* Reset */}
             <button onClick={onReset} className="btn-ghost flex items-center gap-1">

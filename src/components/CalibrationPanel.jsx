@@ -4,21 +4,22 @@
 
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { SlidersHorizontal, ArrowLeft, ArrowRight, ArrowUp, ArrowDown, RotateCcw } from 'lucide-react';
+import { SlidersHorizontal, ArrowLeft, ArrowRight, ArrowUp, ArrowDown, RotateCcw, Scan } from 'lucide-react';
 import {
     getCalibrationOffset,
     setCalibrationOffset,
     nudgeOffset,
 } from '../utils/calibrationOffset';
 
-export default function CalibrationPanel({ courseId = 'default', onOffsetChange }) {
+export default function CalibrationPanel({ courseId = 'default', onOffsetChange, lidarEnabled, onLidarToggle }) {
     const [offset, setOffset] = useState({ dLng: 0, dLat: 0, dElev: 0 });
     const [stepSize, setStepSize] = useState(1); // meters
 
     useEffect(() => {
         const stored = getCalibrationOffset(courseId);
         setOffset(stored);
-    }, [courseId]);
+        onOffsetChange?.(stored);
+    }, [courseId, onOffsetChange]);
 
     function handleNudge(axis, direction) {
         const newOffset = nudgeOffset(offset, axis, stepSize * direction, 40);
@@ -52,6 +53,26 @@ export default function CalibrationPanel({ courseId = 'default', onOffsetChange 
                     <span className="text-[10px]">Reset</span>
                 </button>
             </div>
+
+            {/* LiDAR overlay toggle */}
+            {onLidarToggle && (
+                <div className="flex items-center justify-between mb-3 p-2 rounded-md bg-truarc-bg/40 border border-truarc-border/20">
+                    <div className="flex items-center gap-2">
+                        <Scan size={14} className="text-truarc-accent" />
+                        <span className="text-xs text-truarc-text">Show LiDAR overlay</span>
+                    </div>
+                    <button
+                        onClick={() => onLidarToggle(!lidarEnabled)}
+                        className={`relative w-10 h-5 rounded-full transition-colors ${lidarEnabled ? 'bg-truarc-accent' : 'bg-truarc-border/40'}`}
+                    >
+                        <motion.div
+                            className="absolute top-0.5 w-4 h-4 rounded-full bg-white shadow"
+                            animate={{ left: lidarEnabled ? '1.25rem' : '0.125rem' }}
+                            transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+                        />
+                    </button>
+                </div>
+            )}
 
             <p className="text-[11px] text-truarc-muted mb-3 leading-relaxed">
                 Use arrow buttons to nudge the LiDAR overlay to align with satellite imagery.

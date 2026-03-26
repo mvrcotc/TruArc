@@ -7,6 +7,7 @@ export default defineConfig(({ command }) => ({
     server: {
         port: 3000,
         host: '127.0.0.1',
+        strictPort: false, // Try next port if 3000 is in use
         hmr: {
             overlay: true,
         },

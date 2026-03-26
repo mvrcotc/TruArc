@@ -266,6 +266,25 @@ export function simulateDiscFlight(disc, throwParams, wind = { speed: 0, directi
 }
 
 /**
+ * Convert local (x,z) meter-space → WGS84 lng,lat. Used for terrain sampling.
+ * @param {number} x - meters from origin (local frame)
+ * @param {number} z - meters from origin (local frame)
+ * @param {Object} origin - { lng, lat }
+ * @param {number} bearingDeg - throw direction (0 = north, CW)
+ * @returns {{ lng: number, lat: number }}
+ */
+export function localToLngLat(x, z, origin, bearingDeg = 0) {
+    const mPerDegLng = metersPerDegLng(origin.lat);
+    const bearingRad = bearingDeg * DEG_TO_RAD;
+    const rx = x * Math.cos(bearingRad) - z * Math.sin(bearingRad);
+    const rz = x * Math.sin(bearingRad) + z * Math.cos(bearingRad);
+    return {
+        lng: origin.lng + rx / mPerDegLng,
+        lat: origin.lat + rz / METERS_PER_DEG_LAT,
+    };
+}
+
+/**
  * Convert local meter-space trajectory points → WGS84 coordinates.
  *
  * @param {Array} points        - [{x, y, z}] in meters from origin
@@ -360,36 +379,8 @@ export function smoothBezierCurve(rawPoints, segments = 100) {
 }
 
 // ─── DISC DATABASE ───────────────────────────────────────────
-
-export const DISC_DATABASE = [
-    // Distance Drivers
-    { name: 'Destroyer', speed: 12, glide: 5, turn: -1, fade: 3, type: 'Distance Driver', brand: 'Innova' },
-    { name: 'Wraith', speed: 11, glide: 5, turn: -1, fade: 3, type: 'Distance Driver', brand: 'Innova' },
-    { name: 'Zeus', speed: 12, glide: 5, turn: -1, fade: 3, type: 'Distance Driver', brand: 'Discraft' },
-    { name: 'Nuke', speed: 13, glide: 5, turn: -1, fade: 3, type: 'Distance Driver', brand: 'Discraft' },
-    { name: 'Force', speed: 12, glide: 5, turn: 0, fade: 3, type: 'Distance Driver', brand: 'Discraft' },
-
-    // Fairway Drivers
-    { name: 'Thunderbird', speed: 9, glide: 5, turn: 0, fade: 2, type: 'Fairway Driver', brand: 'Innova' },
-    { name: 'Firebird', speed: 9, glide: 3, turn: 0, fade: 4, type: 'Fairway Driver', brand: 'Innova' },
-    { name: 'Teebird', speed: 7, glide: 5, turn: 0, fade: 2, type: 'Fairway Driver', brand: 'Innova' },
-    { name: 'Stalker', speed: 7, glide: 5, turn: -1, fade: 2, type: 'Fairway Driver', brand: 'Discraft' },
-    { name: 'Undertaker', speed: 9, glide: 5, turn: -1, fade: 2, type: 'Fairway Driver', brand: 'Discraft' },
-
-    // Midranges
-    { name: 'Buzzz', speed: 5, glide: 4, turn: -1, fade: 1, type: 'Midrange', brand: 'Discraft' },
-    { name: 'Roc3', speed: 5, glide: 4, turn: 0, fade: 3, type: 'Midrange', brand: 'Innova' },
-    { name: 'Mako3', speed: 5, glide: 5, turn: 0, fade: 0, type: 'Midrange', brand: 'Innova' },
-    { name: 'Hex', speed: 5, glide: 5, turn: -1, fade: 1, type: 'Midrange', brand: 'Axiom' },
-    { name: 'Malta', speed: 5, glide: 4, turn: 1, fade: 3, type: 'Midrange', brand: 'Discraft' },
-
-    // Putters
-    { name: 'Luna', speed: 3, glide: 3, turn: 0, fade: 3, type: 'Putter', brand: 'Discraft' },
-    { name: 'Aviar', speed: 2, glide: 3, turn: 0, fade: 1, type: 'Putter', brand: 'Innova' },
-    { name: 'Envy', speed: 3, glide: 3, turn: 0, fade: 2, type: 'Putter', brand: 'Axiom' },
-    { name: 'Zone', speed: 4, glide: 3, turn: 0, fade: 3, type: 'Putter', brand: 'Discraft' },
-    { name: 'Berg', speed: 1, glide: 1, turn: 0, fade: 2, type: 'Putter', brand: 'Kastaplast' },
-];
+import { DISC_DATABASE } from '../data/discs';
+export { DISC_DATABASE };
 
 /**
  * Get disc by name

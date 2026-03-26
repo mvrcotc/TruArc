@@ -6,15 +6,16 @@
  */
 
 import React, { useState, useRef, useCallback, useEffect } from 'react';
-import { AnimatePresence } from 'framer-motion';
+import { getCalibrationOffset } from './utils/calibrationOffset';
 
 import MapCanvas from './components/MapCanvas';
 import Toolbar from './components/Toolbar';
 import DiscSelector from './components/DiscSelector';
-import FlightStats from './components/FlightStats';
 import CalibrationPanel from './components/CalibrationPanel';
-import CourseSearch from './components/CourseSearch';
 import CourseManager from './components/CourseManager';
+import FlightStats from './components/FlightStats';
+import CourseSearch from './components/CourseSearch';
+import FloatingCompass from './components/FloatingCompass';
 
 export default function App() {
     const mapRef = useRef(null);
@@ -22,6 +23,7 @@ export default function App() {
     // ─── STATE ──────────────────────────────────────────────────
     const [mode, setMode] = useState('navigate'); // navigate | measure | throw | calibrate | course
     const [selectedDisc, setSelectedDisc] = useState(null);
+    const [viewState, setViewState] = useState({ bearing: 0, pitch: 60 });
     const [throwSettings, setThrowSettings] = useState({
         power: 80,
         aimAngle: 0,
@@ -36,6 +38,13 @@ export default function App() {
     // Course state
     const [activeCourse, setActiveCourse] = useState(null);
     const [activeHole, setActiveHole] = useState(null);
+
+    // Disc bag
+    const [myBag, setMyBag] = useState([]);
+
+    // LiDAR overlay
+    const [lidarEnabled, setLidarEnabled] = useState(false);
+    const [calibrationOffset, setCalibrationOffset] = useState({ dLng: 0, dLat: 0, dElev: 0 });
 
     // ─── KEYBOARD SHORTCUTS ─────────────────────────────────────
     useEffect(() => {
@@ -119,12 +128,28 @@ export default function App() {
         mapRef.current?.flyTo(lng, lat, zoom);
     }, []);
 
+    const handleFlyToLanding = useCallback(() => {
+        if (!flightData?.landing) return;
+        const lookAt = activeHole?.basket || null;
+        mapRef.current?.flyToLanding?.(flightData.landing, lookAt);
+    }, [flightData?.landing, activeHole?.basket]);
+
     const handleSelectCourseFromSearch = useCallback((course) => {
         mapRef.current?.flyTo(course.lng, course.lat, course.zoom || 17);
     }, []);
 
     const handleCalibrationOffset = useCallback((offset) => {
-        console.log('Calibration offset updated:', offset);
+        setCalibrationOffset(offset || { dLng: 0, dLat: 0, dElev: 0 });
+    }, []);
+
+    // Sync calibration offset when opening calibrate mode or changing course
+    useEffect(() => {
+        const courseId = activeCourse?.id || 'default';
+        setCalibrationOffset(getCalibrationOffset(courseId));
+    }, [mode, activeCourse?.id]);
+
+    const handleMapMove = useCallback(({ bearing, pitch }) => {
+        setViewState({ bearing, pitch });
     }, []);
 
     // ─── RENDER ─────────────────────────────────────────────────
@@ -139,8 +164,11 @@ export default function App() {
                 wind={wind}
                 onMeasure={handleMeasure}
                 onFlightComplete={handleFlightComplete}
+                onMove={handleMapMove}
                 activeCourse={activeCourse}
                 activeHole={activeHole}
+                lidarEnabled={lidarEnabled}
+                calibrationOffset={calibrationOffset}
             />
 
             {/* Tactical Grid Overlay */}
@@ -152,53 +180,58 @@ export default function App() {
                     mode={mode}
                     onModeChange={handleModeChange}
                     onReset={handleReset}
-                    onSearch={() => setSearchOpen(true)}
+
                 />
             </div>
 
-            {/* Left Panel: Context-sensitive */}
-            <div className="absolute top-24 left-4 z-20">
-                <AnimatePresence mode="wait">
-                    {mode === 'throw' && (
-                        <DiscSelector
-                            key="disc-selector"
-                            selectedDisc={selectedDisc}
-                            onSelectDisc={setSelectedDisc}
-                            throwSettings={throwSettings}
-                            onUpdateThrow={setThrowSettings}
-                            wind={wind}
-                            onUpdateWind={setWind}
-                        />
-                    )}
-                    {mode === 'calibrate' && (
-                        <CalibrationPanel
-                            key="calibration"
-                            courseId="default"
-                            onOffsetChange={handleCalibrationOffset}
-                        />
-                    )}
-                    {mode === 'course' && (
-                        <CourseManager
-                            key="course-manager"
-                            onSelectCourse={handleSelectCourse}
-                            onSelectHole={handleSelectHole}
-                            onFlyToLocation={handleFlyTo}
-                            activeCourseId={activeCourse?.id}
-                            activeHoleNum={activeHole?.num}
-                        />
-                    )}
-                </AnimatePresence>
+            {/* Left Panel: Always mount all panels (use visibility) so DiscSelector never unmounts - fixes search bug */}
+            <div className="absolute top-24 left-4 z-20 pointer-events-auto">
+                <div style={{ display: mode === 'throw' ? 'block' : 'none' }}>
+                    <DiscSelector
+                        selectedDisc={selectedDisc}
+                        onSelectDisc={setSelectedDisc}
+                        myBag={myBag}
+                        onBagChange={setMyBag}
+                        throwSettings={throwSettings}
+                        onUpdateThrow={setThrowSettings}
+                        wind={wind}
+                        onUpdateWind={setWind}
+                    />
+                </div>
+                <div style={{ display: mode === 'calibrate' ? 'block' : 'none' }}>
+                    <CalibrationPanel
+                        courseId={activeCourse?.id || 'default'}
+                        onOffsetChange={handleCalibrationOffset}
+                        lidarEnabled={lidarEnabled}
+                        onLidarToggle={setLidarEnabled}
+                    />
+                </div>
+                <div style={{ display: mode === 'course' ? 'block' : 'none' }}>
+                    <CourseManager
+                        onSelectCourse={handleSelectCourse}
+                        onSelectHole={handleSelectHole}
+                        onFlyToLocation={handleFlyTo}
+                        activeCourseId={activeCourse?.id}
+                        activeHoleNum={activeHole?.num}
+                    />
+                </div>
             </div>
 
-            {/* Bottom Center: Stats Display */}
-            <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-20">
+            {/* Top Right: Stats (measure/flight/course) - out of direct view */}
+            <div className="absolute top-16 right-4 z-20 flex flex-col gap-2">
                 <FlightStats
                     mode={mode}
                     flightData={flightData}
                     measurement={measurement}
                     activeHole={activeHole}
                     activeCourse={activeCourse}
+                    onFlyToLanding={handleFlyToLanding}
                 />
+            </div>
+
+            {/* Floating Compass (Top Right, above stats) */}
+            <div className="absolute top-4 right-4 z-30 pointer-events-none">
+                <FloatingCompass bearing={viewState.bearing} pitch={viewState.pitch} />
             </div>
 
             {/* Mode Indicator Corners */}
@@ -240,11 +273,14 @@ function CornerIndicators({ mode }) {
                 <div className="w-8 h-8 border-l-2 border-t-2 rounded-tl-sm" style={{ borderColor: modeColors[mode] + '30' }} />
             </div>
 
-            {/* Top-Right Corner */}
-            <div className="absolute top-4 right-4 z-10 pointer-events-none flex flex-col items-end gap-1">
-                <div className="w-8 h-8 border-r-2 border-t-2 rounded-tr-sm" style={{ borderColor: modeColors[mode] + '30' }} />
+            {/* Top-Right Corner - Replaced by Compass, but keeping border style for consistency if desired. 
+                Actually, let's keep the Mode Label as it's useful. I'll offset it slightly or just let them coexist. 
+                The compass is absolute top-4 right-4. The corner indicator is also top-4 right-4.
+                I will move the mode label down slightly.
+            */}
+            <div className="absolute top-16 right-4 z-10 pointer-events-none flex flex-col items-end gap-1">
                 <div
-                    className="font-mono text-[10px] tracking-[0.3em] mr-1"
+                    className="font-mono text-[10px] tracking-[0.3em] mr-1 opacity-50"
                     style={{ color: modeColors[mode] }}
                 >
                     {modeLabels[mode]}

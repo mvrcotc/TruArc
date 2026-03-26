@@ -6,14 +6,14 @@ import React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Target, ArrowDown, ArrowUp, Ruler, Mountain, Zap, Timer, Flag, Navigation, MapPin } from 'lucide-react';
 
-export default function FlightStats({ flightData, measurement, mode, activeHole, activeCourse }) {
+export default function FlightStats({ flightData, measurement, mode, activeHole, activeCourse, onFlyToLanding }) {
     return (
         <AnimatePresence mode="wait">
             {mode === 'measure' && measurement && (
                 <MeasurementDisplay key="measure" measurement={measurement} />
             )}
             {mode === 'throw' && flightData && (
-                <FlightDisplay key="flight" data={flightData} />
+                <FlightDisplay key="flight" data={flightData} onFlyToLanding={onFlyToLanding} />
             )}
             {mode === 'course' && activeHole && (
                 <HoleDisplay key="hole" hole={activeHole} course={activeCourse} />
@@ -29,11 +29,11 @@ function HoleDisplay({ hole, course }) {
 
     return (
         <motion.div
-            initial={{ y: 60, opacity: 0, scale: 0.95 }}
-            animate={{ y: 0, opacity: 1, scale: 1 }}
-            exit={{ y: 60, opacity: 0, scale: 0.95 }}
+            initial={{ opacity: 0, x: 20 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: 20 }}
             transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-            className="glass-panel p-4 min-w-[340px]"
+            className="glass-panel p-3 min-w-[260px]"
         >
             <div className="flex items-center justify-between mb-3">
                 <div className="flex items-center gap-2">
@@ -61,9 +61,9 @@ function HoleDisplay({ hole, course }) {
             <div className="grid grid-cols-3 gap-3">
                 <StatBlock
                     label="Distance"
-                    value={hole.distanceFt}
+                    value={hole.distanceFt.toFixed(1)}
                     unit="ft"
-                    subValue={`${(hole.distanceFt * 0.3048).toFixed(0)}m`}
+                    subValue={`${(hole.distanceFt * 0.3048).toFixed(1)}m`}
                     color="#00e5ff"
                     icon={<Ruler size={12} />}
                     large
@@ -125,11 +125,11 @@ function MeasurementDisplay({ measurement }) {
 
     return (
         <motion.div
-            initial={{ y: 60, opacity: 0, scale: 0.95 }}
-            animate={{ y: 0, opacity: 1, scale: 1 }}
-            exit={{ y: 60, opacity: 0, scale: 0.95 }}
+            initial={{ opacity: 0, x: 20 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: 20 }}
             transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-            className="glass-panel p-4 min-w-[280px]"
+            className="glass-panel p-3 min-w-[200px]"
         >
             <div className="flex items-center gap-2 mb-3">
                 <Ruler size={14} className="text-truarc-accent" />
@@ -137,10 +137,10 @@ function MeasurementDisplay({ measurement }) {
             </div>
 
             <div className="grid grid-cols-2 gap-3">
-                {/* Distance */}
+                {/* Distance - decimal precision */}
                 <StatBlock
                     label="Distance"
-                    value={Math.round(measurement.distanceFt)}
+                    value={measurement.distanceFt.toFixed(1)}
                     unit="ft"
                     subValue={`${measurement.distanceM.toFixed(1)}m`}
                     color="#00e5ff"
@@ -150,7 +150,7 @@ function MeasurementDisplay({ measurement }) {
                 {/* Elevation Change */}
                 <StatBlock
                     label="Elev Change"
-                    value={`${isDownhill ? '' : '+'}${Math.round(measurement.elevChangeFt)}`}
+                    value={`${isDownhill ? '' : '+'}${measurement.elevChangeFt.toFixed(1)}`}
                     unit="ft"
                     subValue={`${measurement.elevChangeM.toFixed(1)}m`}
                     color={isDownhill ? '#00ff88' : '#ff6b35'}
@@ -160,7 +160,7 @@ function MeasurementDisplay({ measurement }) {
                 {/* Horizontal */}
                 <StatBlock
                     label="Horizontal"
-                    value={Math.round(measurement.horizontalFt)}
+                    value={measurement.horizontalFt?.toFixed(1) ?? '—'}
                     unit="ft"
                     color="#8892b0"
                 />
@@ -168,7 +168,7 @@ function MeasurementDisplay({ measurement }) {
                 {/* Bearing */}
                 <StatBlock
                     label="Bearing"
-                    value={measurement.bearingDeg.toFixed(1)}
+                    value={measurement.bearingDeg?.toFixed(1) ?? '—'}
                     unit="°"
                     color="#8892b0"
                 />
@@ -197,17 +197,17 @@ function MeasurementDisplay({ measurement }) {
 
 // ─── FLIGHT DISPLAY ─────────────────────────────────────────
 
-function FlightDisplay({ data }) {
+function FlightDisplay({ data, onFlyToLanding }) {
     const distFt = data.totalDistance * 3.28084;
     const maxHeightFt = data.maxHeight * 3.28084;
 
     return (
         <motion.div
-            initial={{ y: 60, opacity: 0, scale: 0.95 }}
-            animate={{ y: 0, opacity: 1, scale: 1 }}
-            exit={{ y: 60, opacity: 0, scale: 0.95 }}
+            initial={{ opacity: 0, x: 20 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: 20 }}
             transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-            className="glass-panel p-4 min-w-[320px]"
+            className="glass-panel p-3 min-w-[240px]"
         >
             <div className="flex items-center gap-2 mb-3">
                 <Target size={14} className="text-truarc-green" />
@@ -217,7 +217,7 @@ function FlightDisplay({ data }) {
             <div className="grid grid-cols-3 gap-3">
                 <StatBlock
                     label="Distance"
-                    value={Math.round(distFt)}
+                    value={distFt.toFixed(1)}
                     unit="ft"
                     subValue={`${data.totalDistance.toFixed(1)}m`}
                     color="#00e5ff"
@@ -227,7 +227,7 @@ function FlightDisplay({ data }) {
 
                 <StatBlock
                     label="Max Height"
-                    value={Math.round(maxHeightFt)}
+                    value={maxHeightFt.toFixed(1)}
                     unit="ft"
                     subValue={`${data.maxHeight.toFixed(1)}m`}
                     color="#ff6b35"
@@ -245,13 +245,20 @@ function FlightDisplay({ data }) {
                 />
             </div>
 
-            {/* Landing coordinates */}
+            {/* Landing + Fly to landing */}
             {data.landing && (
-                <div className="mt-3 pt-2 border-t border-truarc-border/30">
-                    <div className="cad-label mb-1">Landing Coordinates</div>
-                    <div className="font-mono text-[11px] text-truarc-muted">
-                        {data.landing.lat.toFixed(6)}, {data.landing.lng.toFixed(6)}
+                <div className="mt-3 pt-2 border-t border-truarc-border/30 flex items-center justify-between gap-2">
+                    <div className="font-mono text-[10px] text-truarc-muted">
+                        {data.landing.lat.toFixed(5)}, {data.landing.lng.toFixed(5)}
                     </div>
+                    {onFlyToLanding && (
+                        <button
+                            onClick={onFlyToLanding}
+                            className="text-[10px] font-medium text-truarc-accent hover:underline"
+                        >
+                            View from here
+                        </button>
+                    )}
                 </div>
             )}
         </motion.div>

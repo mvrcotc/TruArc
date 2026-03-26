@@ -11,14 +11,19 @@ import mapboxgl from 'mapbox-gl';
 import {
     simulateDiscFlight,
     trajectoryToWGS84,
+    localToLngLat,
     measure3DDistance,
     smoothBezierCurve,
 } from '../utils/flightPhysics';
 import { courseToGeoJSON } from '../data/courses';
+import { applyOffsetToGeoJSON } from '../utils/calibrationOffset';
 
 const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN;
 
-const MapCanvas = forwardRef(({ onMeasure, onFlightComplete, selectedDisc, throwSettings, wind, mode, activeCourse, activeHole }, ref) => {
+/** Path to LiDAR GeoJSON (place processed file at public/lidar/overlay.geojson) */
+const LIDAR_GEOJSON_URL = '/lidar/overlay.geojson';
+
+const MapCanvas = forwardRef(({ onMeasure, onFlightComplete, onMove, selectedDisc, throwSettings, wind, mode, activeCourse, activeHole, lidarEnabled, calibrationOffset }, ref) => {
     const containerRef = useRef(null);
     const mapRef = useRef(null);
     const markersRef = useRef([]);
@@ -27,6 +32,7 @@ const MapCanvas = forwardRef(({ onMeasure, onFlightComplete, selectedDisc, throw
     const landingSourceAdded = useRef(false);
     const courseLayerAdded = useRef(false);
     const [mapLoaded, setMapLoaded] = useState(false);
+    const [mapError, setMapError] = useState(null);
     const teePointRef = useRef(null);
     const targetPointRef = useRef(null);
 
@@ -34,6 +40,23 @@ const MapCanvas = forwardRef(({ onMeasure, onFlightComplete, selectedDisc, throw
     useImperativeHandle(ref, () => ({
         flyTo(lng, lat, zoom = 17) {
             mapRef.current?.flyTo({ center: [lng, lat], zoom, pitch: 60, bearing: -20, duration: 2500 });
+        },
+        flyToLanding(landing, lookAt = null) {
+            const map = mapRef.current;
+            if (!map || !landing) return;
+            let bearing = map.getBearing();
+            if (lookAt) {
+                const dLng = (lookAt.lng - landing.lng) * 111320 * Math.cos(landing.lat * Math.PI / 180);
+                const dLat = (lookAt.lat - landing.lat) * 111320;
+                bearing = Math.atan2(dLng, dLat) * 180 / Math.PI;
+            }
+            map.flyTo({
+                center: [landing.lng, landing.lat],
+                zoom: 17,
+                pitch: 50,
+                bearing,
+                duration: 1500,
+            });
         },
         getMap() {
             return mapRef.current;
@@ -57,60 +80,79 @@ const MapCanvas = forwardRef(({ onMeasure, onFlightComplete, selectedDisc, throw
 
     // ─── INITIALIZE MAP ─────────────────────────────────────────
     useEffect(() => {
-        if (!MAPBOX_TOKEN || mapRef.current) return;
+        if (mapRef.current) return;
+        if (!MAPBOX_TOKEN || !MAPBOX_TOKEN.trim()) {
+            setMapError('Missing Mapbox token. Add VITE_MAPBOX_TOKEN to .env');
+            return;
+        }
+        setMapError(null);
         mapboxgl.accessToken = MAPBOX_TOKEN;
 
+        // Satellite + 3D terrain for accurate elevation
         const map = new mapboxgl.Map({
             container: containerRef.current,
-            style: 'mapbox://styles/mapbox/satellite-streets-v12',
-            center: [-71.8960, 42.2765], // Default: Maple Hill (corrected)
+            center: [-71.8960, 42.2765],
             zoom: 17,
-            pitch: 60,
+            pitch: 50,
             bearing: -20,
-            antialias: true,
             maxZoom: 22,
             minZoom: 10,
+            // Faster first paint than satellite-streets (still satellite imagery)
+            style: 'mapbox://styles/mapbox/satellite-v9',
+        });
+
+        // `mapRef` is assigned only after `load`, so never use it to detect timeout —
+        // that was aborting legitimate slow loads after 15s.
+        let styleLoaded = false;
+        let instanceRemoved = false;
+        const removeMap = () => {
+            if (instanceRemoved) return;
+            instanceRemoved = true;
+            try {
+                map.remove();
+            } catch {
+                /* already removed */
+            }
+        };
+
+        const LOAD_TIMEOUT_MS = 90_000;
+        const timeoutId = setTimeout(() => {
+            if (!styleLoaded) {
+                setMapError(
+                    'Map timed out (slow network or blocked Mapbox). Check Wi‑Fi, VPN, and ad blockers. ' +
+                    'If the token uses URL restrictions: Mapbox → Account → Tokens → allow http://127.0.0.1:* and http://localhost:*'
+                );
+                removeMap();
+            }
+        }, LOAD_TIMEOUT_MS);
+
+        map.on('error', (e) => {
+            clearTimeout(timeoutId);
+            setMapError(e.error?.message || 'Map failed to load.');
         });
 
         map.on('load', () => {
-            // Enable 3D terrain
-            map.addSource('mapbox-dem', {
-                type: 'raster-dem',
-                url: 'mapbox://mapbox.mapbox-terrain-dem-v1',
-                tileSize: 512,
-                maxzoom: 14,
-            });
-            map.setTerrain({ source: 'mapbox-dem', exaggeration: 1.5 });
-
-            // Add sky atmosphere
-            map.addLayer({
-                id: 'sky',
-                type: 'sky',
-                paint: {
-                    'sky-type': 'atmosphere',
-                    'sky-atmosphere-sun': [0, 20],
-                    'sky-atmosphere-sun-intensity': 5,
-                },
-            });
-
-            // Add 3D buildings for context
-            map.addLayer({
-                id: '3d-buildings',
-                source: 'composite',
-                'source-layer': 'building',
-                filter: ['==', 'extrude', 'true'],
-                type: 'fill-extrusion',
-                minzoom: 14,
-                paint: {
-                    'fill-extrusion-color': '#1a2235',
-                    'fill-extrusion-height': ['get', 'height'],
-                    'fill-extrusion-base': ['get', 'min_height'],
-                    'fill-extrusion-opacity': 0.6,
-                },
-            });
-
+            clearTimeout(timeoutId);
+            styleLoaded = true;
             mapRef.current = map;
             setMapLoaded(true);
+            // Terrain after first frame so the loading overlay clears without waiting on DEM setup
+            queueMicrotask(() => {
+                if (instanceRemoved || !mapRef.current) return;
+                try {
+                    if (!map.getSource('mapbox-dem')) {
+                        map.addSource('mapbox-dem', {
+                            type: 'raster-dem',
+                            url: 'mapbox://mapbox.mapbox-terrain-dem-v1',
+                            tileSize: 512,
+                            maxzoom: 14,
+                        });
+                    }
+                    map.setTerrain({ source: 'mapbox-dem', exaggeration: 2.0 });
+                } catch (e) {
+                    console.warn('Terrain:', e.message);
+                }
+            });
         });
 
         // Click handler
@@ -118,7 +160,19 @@ const MapCanvas = forwardRef(({ onMeasure, onFlightComplete, selectedDisc, throw
             handleMapClick(e.lngLat, map);
         });
 
-        return () => map.remove();
+        // Move handler for compass
+        map.on('move', () => {
+            const bearing = map.getBearing();
+            const pitch = map.getPitch();
+            // We use a callback ref or direct prop call if provided
+            if (onMove) onMove({ bearing, pitch });
+        });
+
+        return () => {
+            clearTimeout(timeoutId);
+            removeMap();
+            mapRef.current = null;
+        };
     }, []);
 
     // ─── CLICK HANDLERS ─────────────────────────────────────────
@@ -142,11 +196,10 @@ const MapCanvas = forwardRef(({ onMeasure, onFlightComplete, selectedDisc, throw
         map.off('click', handler);
         map.on('click', handler);
 
-        // Cursor updates
-        if (mode === 'measure' || mode === 'throw') {
-            map.getCanvas().style.cursor = 'crosshair';
-        } else {
-            map.getCanvas().style.cursor = '';
+        // Cursor updates (canvas may be undefined before map fully loads)
+        const canvas = map.getCanvas?.();
+        if (canvas?.style) {
+            canvas.style.cursor = mode === 'measure' || mode === 'throw' ? 'crosshair' : '';
         }
 
         return () => {
@@ -188,23 +241,32 @@ const MapCanvas = forwardRef(({ onMeasure, onFlightComplete, selectedDisc, throw
     function handleThrowClick(lngLat, map) {
         if (!selectedDisc) return;
 
-        const elevation = map.queryTerrainElevation(lngLat) || 0;
+        const elevation = map.queryTerrainElevation?.(lngLat) ?? 0;
         const tee = { lng: lngLat.lng, lat: lngLat.lat, elevation };
 
         clearMarkers();
         clearFlightPath();
         addMarker(map, lngLat, 'THROW', '#ff6b35');
 
-        // Run flight simulation
+        // View-aligned: aim = current map bearing (where user is looking)
+        const bearing = map.getBearing?.() ?? throwSettings?.aimAngle ?? 0;
+
+        // Terrain sampling: local (x,z) → lng,lat → elevation. Sim expects height relative to tee ground.
+        const getGroundElev = (x, z) => {
+            const { lng, lat } = localToLngLat(x, z, tee, bearing);
+            const elev = map.queryTerrainElevation?.({ lng, lat });
+            const absElev = elev ?? tee.elevation ?? 0;
+            return absElev - (tee.elevation ?? 0); // height relative to tee ground
+        };
+
         const flightResult = simulateDiscFlight(
             selectedDisc,
             throwSettings || { power: 80, aimAngle: 0, releaseAngle: 0, noseAngle: 12 },
             wind || { speed: 0, direction: 0 },
-            null,
+            getGroundElev,
         );
 
         // Convert to WGS84
-        const bearing = throwSettings?.aimAngle || 0;
         const wgs84Points = trajectoryToWGS84(flightResult.points, tee, bearing);
 
         // Draw flight path
@@ -644,12 +706,142 @@ const MapCanvas = forwardRef(({ onMeasure, onFlightComplete, selectedDisc, throw
 
     // ─── LIDAR LAYER ────────────────────────────────────────────
     useEffect(() => {
-        if (!mapLoaded || !mapRef.current) return;
-    }, [mapLoaded]);
+        const map = mapRef.current;
+        if (!mapLoaded || !map) return;
+
+        const sourceId = 'lidar-points';
+        const layerId = 'lidar-points-layer';
+
+        if (!lidarEnabled) {
+            if (map.getLayer(layerId)) map.removeLayer(layerId);
+            if (map.getSource(sourceId)) map.removeSource(sourceId);
+            return;
+        }
+
+        const ac = new AbortController();
+        fetch(LIDAR_GEOJSON_URL, { signal: ac.signal })
+            .then((res) => {
+                if (!res.ok) throw new Error(`LiDAR file not found (${res.status}). Place processed GeoJSON at public/lidar/overlay.geojson`);
+                return res.json();
+            })
+            .then((geojson) => {
+                const offset = calibrationOffset || { dLng: 0, dLat: 0, dElev: 0 };
+                const adjusted = applyOffsetToGeoJSON(geojson, offset);
+
+                if (map.getSource(sourceId)) {
+                    map.getSource(sourceId).setData(adjusted);
+                } else {
+                    map.addSource(sourceId, { type: 'geojson', data: adjusted });
+                    map.addLayer({
+                        id: layerId,
+                        type: 'circle',
+                        source: sourceId,
+                        paint: {
+                            'circle-radius': 1.5,
+                            'circle-color': [
+                                'match',
+                                ['get', 'classification'],
+                                2, 'rgba(139, 90, 43, 0.6)',   // Ground
+                                3, 'rgba(34, 139, 34, 0.5)',   // Low veg
+                                4, 'rgba(0, 128, 0, 0.6)',     // Mid veg
+                                5, 'rgba(0, 100, 0, 0.5)',     // High veg
+                                6, 'rgba(128, 128, 128, 0.5)', // Building
+                                'rgba(0, 200, 255, 0.4)',      // Default
+                            ],
+                            'circle-opacity': 0.7,
+                        },
+                    });
+                }
+            })
+            .catch((err) => {
+                if (err.name !== 'AbortError') console.warn('LiDAR overlay:', err.message);
+            });
+
+        return () => {
+            ac.abort();
+            if (map.getLayer(layerId)) map.removeLayer(layerId);
+            if (map.getSource(sourceId)) map.removeSource(sourceId);
+        };
+    }, [mapLoaded, lidarEnabled, calibrationOffset]);
+
+    // ─── OBSTACLE LAYER (LiDAR trees per course) ─────────────────
+    useEffect(() => {
+        const map = mapRef.current;
+        if (!mapLoaded || !map) return;
+
+        const sourceId = 'obstacle-trees';
+        const layerId = 'obstacle-trees-layer';
+        const courseId = activeCourse?.id;
+
+        if (!courseId) {
+            if (map.getLayer(layerId)) map.removeLayer(layerId);
+            if (map.getSource(sourceId)) map.removeSource(sourceId);
+            return;
+        }
+
+        const ac = new AbortController();
+        fetch(`/lidar/${courseId}_trees.geojson`, { signal: ac.signal })
+            .then((res) => {
+                if (!res.ok) throw new Error('Not found');
+                return res.json();
+            })
+            .then((geojson) => {
+                const offset = calibrationOffset || { dLng: 0, dLat: 0, dElev: 0 };
+                const adjusted = applyOffsetToGeoJSON(geojson, offset);
+
+                if (map.getSource(sourceId)) {
+                    map.getSource(sourceId).setData(adjusted);
+                } else {
+                    map.addSource(sourceId, { type: 'geojson', data: adjusted });
+                    map.addLayer({
+                        id: layerId,
+                        type: 'circle',
+                        source: sourceId,
+                        paint: {
+                            'circle-radius': ['interpolate', ['linear'], ['get', 'heightM'], 0, 1, 5, 2, 15, 4, 30, 6],
+                            'circle-color': 'rgba(0, 128, 0, 0.5)',
+                            'circle-stroke-width': 1,
+                            'circle-stroke-color': 'rgba(0, 160, 0, 0.4)',
+                        },
+                    });
+                }
+            })
+            .catch(() => {
+                if (map.getLayer(layerId)) map.removeLayer(layerId);
+                if (map.getSource(sourceId)) map.removeSource(sourceId);
+            });
+
+        return () => {
+            ac.abort();
+            if (map.getLayer(layerId)) map.removeLayer(layerId);
+            if (map.getSource(sourceId)) map.removeSource(sourceId);
+        };
+    }, [mapLoaded, activeCourse?.id, calibrationOffset]);
 
     // ─── RENDER ─────────────────────────────────────────────────
     return (
-        <div ref={containerRef} className="absolute inset-0 w-full h-full" id="map-canvas" />
+        <div className="relative w-full h-full">
+            <div ref={containerRef} className="absolute inset-0 w-full h-full" id="map-canvas" />
+            {!mapLoaded && !mapError && (
+                <div className="absolute inset-0 flex items-center justify-center bg-truarc-bg/80 z-10">
+                    <div className="text-center">
+                        <div className="w-10 h-10 border-2 border-truarc-accent border-t-transparent rounded-full animate-spin mx-auto mb-3" />
+                        <p className="text-truarc-muted text-sm">Loading map…</p>
+                    </div>
+                </div>
+            )}
+            {mapError && (
+                <div className="absolute inset-0 flex items-center justify-center bg-truarc-bg/95 z-10 p-4">
+                    <div className="max-w-md text-center">
+                        <p className="text-truarc-warn font-medium mb-2">Map couldn&apos;t load</p>
+                        <p className="text-truarc-muted text-sm mb-4">{mapError}</p>
+                        <p className="text-truarc-muted text-xs">
+                            Check .env has VITE_MAPBOX_TOKEN. Restart dev server after changing .env.
+                        </p>
+                    </div>
+                </div>
+            )}
+        </div>
     );
 });
 
