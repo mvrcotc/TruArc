@@ -28,7 +28,7 @@ export default function App() {
         power: 80,
         aimAngle: 0,
         releaseAngle: 0,
-        noseAngle: 12,
+        noseAngle: 2,
     });
     const [wind, setWind] = useState({ speed: 0, direction: 0 });
     const [measurement, setMeasurement] = useState(null);

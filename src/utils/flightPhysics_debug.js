@@ -37,19 +37,20 @@ const metersPerDegLng = (lat) => METERS_PER_DEG_LAT * Math.cos(lat * DEG_TO_RAD)
  * Higher glide = more lift; higher speed = optimized at higher velocity.
  */
 function liftCoefficient(disc, angleOfAttack) {
-    // Disc golf discs generate much less innate lift than original formula.
-    const baseCl = 0.08 + disc.glide * 0.03;
-    const aoaEffect = angleOfAttack * 0.025;
-    return Math.max(0, baseCl + aoaEffect);
+    const baseCl = 0.15 + disc.glide * 0.035;
+    const aoaEffect = angleOfAttack * 0.08;
+    // Speed rating affects how well the disc maintains lift at high velocity
+    const speedFactor = 1 + (disc.speed - 7) * 0.02;
+    return Math.max(0, (baseCl + aoaEffect) * speedFactor);
 }
 
 /**
  * Drag coefficient. Higher speed discs have less drag.
  */
 function dragCoefficient(disc, angleOfAttack) {
-    const baseCd = 0.06 - disc.speed * 0.0025;
-    const aoaDrag = Math.abs(angleOfAttack) * 0.015;
-    return Math.max(0.015, baseCd + aoaDrag);
+    const baseCd = 0.08 - disc.speed * 0.003;
+    const aoaDrag = Math.abs(angleOfAttack) * 0.04;
+    return Math.max(0.02, baseCd + aoaDrag);
 }
 
 /**
@@ -97,12 +98,10 @@ function derivatives(state, disc, wind) {
     const cd = dragCoefficient(disc, effectiveAoA);
     const liftForce = q * cl;
     const dragForce = q * cd;
-    const flightPathAngle = horizontalSpeed > 0 ? Math.atan2(vry, horizontalSpeed) : 0;
 
-    // Lift acts perpendicular to velocity!
-    const liftCos = Math.cos(flightPathAngle);
-    const liftY = (liftForce / DISC_MASS) * Math.cos(roll * DEG_TO_RAD) * liftCos;
-    const liftLateral = (liftForce / DISC_MASS) * Math.sin(roll * DEG_TO_RAD) * 0.3 * liftCos;
+    // Lift acts perpendicular to velocity (mostly upward, banked by roll)
+    const liftY = (liftForce / DISC_MASS) * Math.cos(roll * DEG_TO_RAD);
+    const liftLateral = (liftForce / DISC_MASS) * Math.sin(roll * DEG_TO_RAD) * 0.3;
 
     // Drag opposes motion
     const dragAx = -(dragForce / DISC_MASS) * (vrx / relSpeed);
@@ -136,19 +135,29 @@ function derivatives(state, disc, wind) {
     // Spin decay
     const dspin = -spin * 0.15;
 
-    return {
+    const res = {
         dvx: dragAx + liftLateral + latX,
         dvy: dragAy + liftY - GRAVITY,
         dvz: dragAz + latZ,
         droll,
         dspin,
     };
+    if (isNaN(res.dvx) || isNaN(res.dvy) || isNaN(res.dvz)) {
+        console.log("NaN DETECTED IN DERIVATIVES!");
+        console.log("vrx", vrx, "vry", vry, "vrz", vrz, "relSpeed", relSpeed);
+        console.log("q", q, "cd", cd, "dragForce", dragForce, "dragAx", dragAx);
+        console.log("liftForce", liftForce, "liftY", liftY, "liftLateral", liftLateral);
+        console.log("latX", latX, "latZ", latZ);
+        console.log("disc", disc, "speedFraction", speedFraction);
+    }
+    return res;
 }
 
 /**
  * Single RK4 physics step
  */
 function rk4Step(state, disc, wind, dt) {
+
     const s = state;
 
     const k1 = derivatives(s, disc, wind);
@@ -171,6 +180,16 @@ function rk4Step(state, disc, wind, dt) {
     };
     const k4 = derivatives(s4, disc, wind);
 
+    
+    if (isNaN(k1.dvx) || isNaN(k2.dvx) || isNaN(k3.dvx) || isNaN(k4.dvx)) {
+        console.log("Found NaN in rk4Step!");
+        console.log("State:", state);
+        console.log("k1:", k1);
+        console.log("k2:", k2);
+        console.log("k3:", k3);
+        console.log("k4:", k4);
+        process.exit(1);
+    }
     return createState(
         s.x + (s.vx) * dt,
         s.y + (s.vy) * dt,

@@ -16,7 +16,6 @@ import {
     smoothBezierCurve,
 } from '../utils/flightPhysics';
 import { courseToGeoJSON } from '../data/courses';
-import { applyOffsetToGeoJSON } from '../utils/calibrationOffset';
 
 const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN;
 
@@ -238,52 +237,85 @@ const MapCanvas = forwardRef(({ onMeasure, onFlightComplete, onMove, selectedDis
 
     // ─── THROW MODE ────────────────────────────────────────────
 
+    // Keep track of the last clicked location for live param updates
+    const lastThrowRef = useRef(null);
+
+    // Re-simulate on setting change if we have a standing throw
+    useEffect(() => {
+        if (mode === 'throw' && lastThrowRef.current && mapRef.current) {
+            handleThrowClick(lastThrowRef.current, mapRef.current);
+        }
+    }, [throwSettings, wind, selectedDisc]);
+
     function handleThrowClick(lngLat, map) {
         if (!selectedDisc) return;
+        lastThrowRef.current = lngLat;
 
-        const elevation = map.queryTerrainElevation?.(lngLat) ?? 0;
-        const tee = { lng: lngLat.lng, lat: lngLat.lat, elevation };
+        try {
+            const elevation = map.queryTerrainElevation?.(lngLat) ?? 0;
+            const tee = { lng: lngLat.lng, lat: lngLat.lat, elevation };
 
-        clearMarkers();
-        clearFlightPath();
-        addMarker(map, lngLat, 'THROW', '#ff6b35');
+            clearMarkers();
+            
+            // Note: We DO NOT call clearFlightPath() here because drawFlightPath 
+            // uses setData() to update the existing source. Removing and adding 
+            // the source in the same tick causes Mapbox WebGL worker race conditions.
+            
+            addMarker(map, lngLat, 'THROW', '#ff6b35');
 
-        // View-aligned: aim = current map bearing (where user is looking)
-        const bearing = map.getBearing?.() ?? throwSettings?.aimAngle ?? 0;
+            // View-aligned: aim = map bearing + aim slider
+            const bearing = (map.getBearing?.() || 0) + (throwSettings?.aimAngle || 0);
 
-        // Terrain sampling: local (x,z) → lng,lat → elevation. Sim expects height relative to tee ground.
-        const getGroundElev = (x, z) => {
-            const { lng, lat } = localToLngLat(x, z, tee, bearing);
-            const elev = map.queryTerrainElevation?.({ lng, lat });
-            const absElev = elev ?? tee.elevation ?? 0;
-            return absElev - (tee.elevation ?? 0); // height relative to tee ground
-        };
+            // Terrain sampling: fallback if error
+            const getGroundElev = (x, z) => {
+                try {
+                    const { lng, lat } = localToLngLat(x, z, tee, bearing);
+                    const elev = map.queryTerrainElevation?.([lng, lat]);
+                    const absElev = elev ?? tee.elevation ?? 0;
+                    return absElev - (tee.elevation ?? 0);
+                } catch (e) {
+                    return 0;
+                }
+            };
 
-        const flightResult = simulateDiscFlight(
-            selectedDisc,
-            throwSettings || { power: 80, aimAngle: 0, releaseAngle: 0, noseAngle: 12 },
-            wind || { speed: 0, direction: 0 },
-            getGroundElev,
-        );
+            const flightResult = simulateDiscFlight(
+                selectedDisc,
+                throwSettings || { power: 80, aimAngle: 0, releaseAngle: 0, noseAngle: 12 },
+                wind || { speed: 0, direction: 0 },
+                getGroundElev,
+            );
 
-        // Convert to WGS84
-        const wgs84Points = trajectoryToWGS84(flightResult.points, tee, bearing);
+            // Convert to WGS84
+            const wgs84Points = trajectoryToWGS84(flightResult.points, tee, bearing);
 
-        // Draw flight path
-        drawFlightPath(map, wgs84Points);
+            // Draw flight path
+            try {
+                drawFlightPath(map, wgs84Points);
+            } catch (layerErr) {
+                console.error("Flight path drawing error:", layerErr);
+            }
 
-        // Mark landing
-        const landing = wgs84Points[wgs84Points.length - 1];
-        addMarker(map, { lng: landing.lng, lat: landing.lat }, 'LAND', '#00ff88');
-        drawLandingZone(map, landing);
+            // Mark landing
+            const landing = wgs84Points[wgs84Points.length - 1];
+            if (landing && !isNaN(landing.lng) && !isNaN(landing.lat)) {
+                addMarker(map, { lng: landing.lng, lat: landing.lat }, 'LAND', '#00ff88');
+                try {
+                    drawLandingZone(map, landing);
+                } catch (lzErr) {
+                    console.error("Landing zone error:", lzErr);
+                }
+            }
 
-        // Report
-        onFlightComplete?.({
-            ...flightResult,
-            origin: tee,
-            landing,
-            wgs84Points,
-        });
+            // Report
+            onFlightComplete?.({
+                ...flightResult,
+                origin: tee,
+                landing,
+                wgs84Points,
+            });
+        } catch (e) {
+            console.error("Simulation error:", e);
+        }
     }
 
     // ─── COURSE LAYOUT DRAWING ─────────────────────────────────
@@ -558,7 +590,8 @@ const MapCanvas = forwardRef(({ onMeasure, onFlightComplete, onMove, selectedDis
             200,
         );
 
-        const coordinates = smooth.map((p) => [p.x, p.z, p.y]);
+        // [lng, lat]
+        const coordinates = smooth.map((p) => [p.x, p.z]);
         const id = 'flight-path';
 
         if (map.getSource(id)) {
