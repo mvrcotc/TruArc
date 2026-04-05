@@ -37,9 +37,10 @@ const metersPerDegLng = (lat) => METERS_PER_DEG_LAT * Math.cos(lat * DEG_TO_RAD)
  * Higher glide = more lift; higher speed = optimized at higher velocity.
  */
 function liftCoefficient(disc, angleOfAttack) {
-    // Disc golf discs generate significant lift at high speeds.
-    const baseCl = 0.15 + disc.glide * 0.035;
-    const aoaEffect = angleOfAttack * 0.025;
+    // Disc golf lift coefficient
+    // Lowered so discs glide instead of accelerating into the sky like a helicopter.
+    const baseCl = 0.11 + disc.glide * 0.02;
+    const aoaEffect = angleOfAttack * 0.015;
     return Math.max(0, baseCl + aoaEffect);
 }
 
@@ -110,30 +111,26 @@ function derivatives(state, disc, wind) {
     const dragAz = -(dragForce / DISC_MASS) * (vrz / relSpeed);
 
     // Turn effect (negative = turn right for RHBH)
-    // Active in high-speed portion of flight, related to spin
-    const speedFraction = relSpeed / speedToVelocity(disc.speed);
-    const turnEffect = disc.turn * 2.5 * speedFraction * (spin / 1000);
+    const speedFraction = relSpeed / speedToVelocity(disc.speed, 100); 
+    const turnEffect = disc.turn * 0.4 * speedFraction * (spin / 1000);
 
     // Fade effect (positive = fade left for RHBH)
-    // Active in low-speed portion of flight
     const fadeFraction = Math.max(0, 1 - speedFraction);
-    const fadeEffect = disc.fade * 3.0 * fadeFraction * Math.max(0.3, spin / 1000);
+    const fadeEffect = disc.fade * 0.6 * fadeFraction * Math.max(0.3, spin / 1000);
 
     // Combined lateral force (turn + fade) → applied perpendicular to forward motion
-    // To drift LEFT (negative X), the force must be negative.
-    // Fade is positive (e.g., 3), so to drift left it must be inverted.
-    // Turn is negative (e.g., -1.5), so to drift right (positive X) it must be inverted.
     const lateralForce = -(turnEffect + fadeEffect);
 
-    // Heading direction for lateral force application
+    // Heading direction
     const heading = Math.atan2(vrx, vrz);
     const latX = lateralForce * Math.cos(heading);
     const latZ = -lateralForce * Math.sin(heading);
 
-    // Roll dynamics: Turn & fade affect disc roll angle
-    const rollFromTurn = disc.turn * 1.5 * speedFraction;
-    const rollFromFade = -disc.fade * 2.0 * fadeFraction;
-    const rollDamping = -roll * 0.5;
+    // Roll dynamics: prevent extreme barrel rolls!
+    // A max bank of ~45-60 deg (0.8 - 1.0 rad) is realistic.
+    const rollFromTurn = disc.turn * 0.15 * speedFraction;
+    const rollFromFade = -disc.fade * 0.15 * fadeFraction;
+    const rollDamping = -roll * 1.5; 
     const droll = rollFromTurn + rollFromFade + rollDamping;
 
     // Spin decay
