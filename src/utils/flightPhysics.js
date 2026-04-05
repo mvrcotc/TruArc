@@ -37,8 +37,8 @@ const metersPerDegLng = (lat) => METERS_PER_DEG_LAT * Math.cos(lat * DEG_TO_RAD)
  * Higher glide = more lift; higher speed = optimized at higher velocity.
  */
 function liftCoefficient(disc, angleOfAttack) {
-    // Disc golf discs generate much less innate lift than original formula.
-    const baseCl = 0.08 + disc.glide * 0.03;
+    // Disc golf discs generate significant lift at high speeds.
+    const baseCl = 0.15 + disc.glide * 0.035;
     const aoaEffect = angleOfAttack * 0.025;
     return Math.max(0, baseCl + aoaEffect);
 }
@@ -57,7 +57,7 @@ function dragCoefficient(disc, angleOfAttack) {
  * Pro arm ≈ 35 m/s (speed 14), average ≈ 22 m/s (speed 9).
  */
 function speedToVelocity(speedRating, powerPercent = 80) {
-    const maxV = 15 + speedRating * 1.6; // ~30 m/s for speed 14
+    const maxV = 20 + speedRating * 1.5; // ~41 m/s for speed 14
     return maxV * (powerPercent / 100);
 }
 
@@ -120,7 +120,10 @@ function derivatives(state, disc, wind) {
     const fadeEffect = disc.fade * 3.0 * fadeFraction * Math.max(0.3, spin / 1000);
 
     // Combined lateral force (turn + fade) → applied perpendicular to forward motion
-    const lateralForce = turnEffect + fadeEffect;
+    // To drift LEFT (negative X), the force must be negative.
+    // Fade is positive (e.g., 3), so to drift left it must be inverted.
+    // Turn is negative (e.g., -1.5), so to drift right (positive X) it must be inverted.
+    const lateralForce = -(turnEffect + fadeEffect);
 
     // Heading direction for lateral force application
     const heading = Math.atan2(vrx, vrz);
