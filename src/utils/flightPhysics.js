@@ -95,25 +95,25 @@ function derivatives(state, disc, wind) {
     const assumedPitchDeg = 2.0; 
     
     // Angle of Attack = Pitch - Flight Path.
-    // If it flies UP (flight path > 0), wind hits the TOP of the disc, so AoA is smaller or negative.
-    // If it falls DOWN (flight path < 0), wind hits the BOTTOM, so AoA is larger.
     const aoa = assumedPitchDeg - flightPathAngleDeg;
     
-    // Roll is stored in radians. Convert to degrees for effect mapping, but use directly in cos/sin.
+    // Roll is stored in radians.
     const rollDeg = roll * RAD_TO_DEG;
     const effectiveAoA = aoa + Math.abs(rollDeg) * 0.1; 
 
+    // Cap the maximum effective AoA before post-stall lift shedding occurs (approx 15-20 degrees)
+    const stallCappedAoA = Math.min(Math.max(effectiveAoA, -15), 18);
+
     // Aerodynamic forces
     const q = 0.5 * AIR_DENSITY * relSpeed * relSpeed * DISC_AREA;
-    const cl = liftCoefficient(disc, effectiveAoA);
-    const cd = dragCoefficient(disc, effectiveAoA);
+    const cl = liftCoefficient(disc, stallCappedAoA);
+    const cd = dragCoefficient(disc, stallCappedAoA);
     const liftForce = q * cl;
     const dragForce = q * cd;
 
     const flightPathAngle = horizontalSpeed > 0 ? Math.atan2(vry, horizontalSpeed) : 0;
     const liftCos = Math.cos(flightPathAngle);
     
-    // Roll is in radians. Do NOT use DEG_TO_RAD on it.
     const liftY = (liftForce / DISC_MASS) * Math.cos(roll) * liftCos;
     const liftLateral = (liftForce / DISC_MASS) * Math.sin(roll) * 0.5 * liftCos;
 
