@@ -260,14 +260,30 @@ const MapCanvas = forwardRef(({ onMeasure, onFlightComplete, onMove, selectedDis
             // Note: We DO NOT call clearFlightPath() here because drawFlightPath 
             // uses setData() to update the existing source. Removing and adding 
             // the source in the same tick causes Mapbox WebGL worker race conditions.
-            
             addMarker(map, lngLat, 'THROW', '#ff6b35');
 
-            // Calculate base bearing (either to active hole basket, or facing map direction)
+            // Calculate base bearing (either to active hole basket, closest basket, or map direction)
             let baseBearing = map.getBearing?.() || 0;
-            if (activeHole?.basket) {
-                const dy = activeHole.basket.lat - lngLat.lat;
-                const dx = (activeHole.basket.lng - lngLat.lng) * Math.cos(lngLat.lat * Math.PI / 180);
+            let targetBasket = activeHole?.basket;
+
+            // If no active hole, aim at the nearest basket
+            if (!targetBasket && activeCourse) {
+                let closestDist = Infinity;
+                activeCourse.holes.forEach(hole => {
+                    const dist = Math.hypot(
+                        (hole.basket.lng - lngLat.lng) * Math.cos(lngLat.lat * Math.PI / 180),
+                        hole.basket.lat - lngLat.lat
+                    );
+                    if (dist < closestDist) {
+                        closestDist = dist;
+                        targetBasket = hole.basket;
+                    }
+                });
+            }
+
+            if (targetBasket) {
+                const dy = targetBasket.lat - lngLat.lat;
+                const dx = (targetBasket.lng - lngLat.lng) * Math.cos(lngLat.lat * Math.PI / 180);
                 baseBearing = (Math.atan2(dx, dy) * 180) / Math.PI;
             }
 
