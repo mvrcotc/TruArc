@@ -87,10 +87,21 @@ function derivatives(state, disc, wind) {
         return { dvx: 0, dvy: -GRAVITY, dvz: 0, droll: 0, dspin: 0 };
     }
 
-    // Angle of attack (bank angle affects effective AoA)
     const horizontalSpeed = Math.sqrt(vrx * vrx + vrz * vrz);
-    const aoa = horizontalSpeed > 0 ? Math.atan2(vry, horizontalSpeed) * RAD_TO_DEG : 0;
-    const effectiveAoA = aoa + roll * 0.3; // Roll contributes to effective AoA
+    const flightPathAngleDeg = horizontalSpeed > 0 ? Math.atan2(vry, horizontalSpeed) * RAD_TO_DEG : 0;
+    
+    // In our simplified model without a physical pitch integrator, we'll assume the disc maintains
+    // a slight constant nose-up pitch relative to the ground typical of most throws (e.g., 2 degrees).
+    const assumedPitchDeg = 2.0; 
+    
+    // Angle of Attack = Pitch - Flight Path.
+    // If it flies UP (flight path > 0), wind hits the TOP of the disc, so AoA is smaller or negative.
+    // If it falls DOWN (flight path < 0), wind hits the BOTTOM, so AoA is larger.
+    const aoa = assumedPitchDeg - flightPathAngleDeg;
+    
+    // Roll is stored in radians. Convert to degrees for effect mapping, but use directly in cos/sin.
+    const rollDeg = roll * RAD_TO_DEG;
+    const effectiveAoA = aoa + Math.abs(rollDeg) * 0.1; 
 
     // Aerodynamic forces
     const q = 0.5 * AIR_DENSITY * relSpeed * relSpeed * DISC_AREA;
@@ -98,12 +109,13 @@ function derivatives(state, disc, wind) {
     const cd = dragCoefficient(disc, effectiveAoA);
     const liftForce = q * cl;
     const dragForce = q * cd;
-    const flightPathAngle = horizontalSpeed > 0 ? Math.atan2(vry, horizontalSpeed) : 0;
 
-    // Lift acts perpendicular to velocity!
+    const flightPathAngle = horizontalSpeed > 0 ? Math.atan2(vry, horizontalSpeed) : 0;
     const liftCos = Math.cos(flightPathAngle);
-    const liftY = (liftForce / DISC_MASS) * Math.cos(roll * DEG_TO_RAD) * liftCos;
-    const liftLateral = (liftForce / DISC_MASS) * Math.sin(roll * DEG_TO_RAD) * 0.3 * liftCos;
+    
+    // Roll is in radians. Do NOT use DEG_TO_RAD on it.
+    const liftY = (liftForce / DISC_MASS) * Math.cos(roll) * liftCos;
+    const liftLateral = (liftForce / DISC_MASS) * Math.sin(roll) * 0.5 * liftCos;
 
     // Drag opposes motion
     const dragAx = -(dragForce / DISC_MASS) * (vrx / relSpeed);
