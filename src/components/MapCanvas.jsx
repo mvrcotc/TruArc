@@ -184,7 +184,7 @@ const MapCanvas = forwardRef(({ onMeasure, onFlightComplete, onMove, selectedDis
         } else if (currentMode === 'throw') {
             handleThrowClick(lngLat, map);
         }
-    }, [mode, selectedDisc, throwSettings, wind, onMeasure, onFlightComplete]);
+    }, [mode, selectedDisc, throwSettings, wind, onMeasure, onFlightComplete, activeHole]);
 
     // Update click handler when mode changes
     useEffect(() => {
@@ -245,7 +245,7 @@ const MapCanvas = forwardRef(({ onMeasure, onFlightComplete, onMove, selectedDis
         if (mode === 'throw' && lastThrowRef.current && mapRef.current) {
             handleThrowClick(lastThrowRef.current, mapRef.current);
         }
-    }, [throwSettings, wind, selectedDisc]);
+    }, [throwSettings, wind, selectedDisc, activeHole, handleThrowClick]);
 
     function handleThrowClick(lngLat, map) {
         if (!selectedDisc) return;
@@ -263,8 +263,16 @@ const MapCanvas = forwardRef(({ onMeasure, onFlightComplete, onMove, selectedDis
             
             addMarker(map, lngLat, 'THROW', '#ff6b35');
 
-            // View-aligned: aim = map bearing + aim slider
-            const bearing = (map.getBearing?.() || 0) + (throwSettings?.aimAngle || 0);
+            // Calculate base bearing (either to active hole basket, or facing map direction)
+            let baseBearing = map.getBearing?.() || 0;
+            if (activeHole?.basket) {
+                const dy = activeHole.basket.lat - lngLat.lat;
+                const dx = (activeHole.basket.lng - lngLat.lng) * Math.cos(lngLat.lat * Math.PI / 180);
+                baseBearing = (Math.atan2(dx, dy) * 180) / Math.PI;
+            }
+
+            // Final aim = base bearing + aim slider
+            const bearing = baseBearing + (throwSettings?.aimAngle || 0);
 
             // Terrain sampling: fallback if error
             const getGroundElev = (x, z) => {
