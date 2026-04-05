@@ -277,8 +277,8 @@ export function simulateDiscFlight(disc, throwParams, wind = { speed: 0, directi
 export function localToLngLat(x, z, origin, bearingDeg = 0) {
     const mPerDegLng = metersPerDegLng(origin.lat);
     const bearingRad = bearingDeg * DEG_TO_RAD;
-    const rx = x * Math.cos(bearingRad) - z * Math.sin(bearingRad);
-    const rz = x * Math.sin(bearingRad) + z * Math.cos(bearingRad);
+    const rx = x * Math.sin(bearingRad) + z * Math.cos(bearingRad);
+    const rz = x * Math.cos(bearingRad) - z * Math.sin(bearingRad);
     return {
         lng: origin.lng + rx / mPerDegLng,
         lat: origin.lat + rz / METERS_PER_DEG_LAT,
@@ -298,9 +298,12 @@ export function trajectoryToWGS84(points, origin, bearingDeg = 0) {
     const bearingRad = bearingDeg * DEG_TO_RAD;
 
     return points.map((p) => {
-        // Rotate point by bearing
-        const rx = p.x * Math.cos(bearingRad) - p.z * Math.sin(bearingRad);
-        const rz = p.x * Math.sin(bearingRad) + p.z * Math.cos(bearingRad);
+        // Geographic rotation: bearing 0 = North (increases lat), 90 = East (increases lng)
+        // If p.x is the forward throw distance:
+        // North: rx = 0, rz = p.x
+        // East: rx = p.x, rz = 0
+        const rx = p.x * Math.sin(bearingRad) + p.z * Math.cos(bearingRad);
+        const rz = p.x * Math.cos(bearingRad) - p.z * Math.sin(bearingRad);
 
         return {
             lng: origin.lng + rx / mPerDegLng,
