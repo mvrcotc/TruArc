@@ -184,7 +184,7 @@ const MapCanvas = forwardRef(({ onMeasure, onFlightComplete, onMove, selectedDis
         } else if (currentMode === 'throw') {
             handleThrowClick(lngLat, map);
         }
-    }, [mode, selectedDisc, throwSettings, wind, onMeasure, onFlightComplete, activeHole]);
+    }, [mode, selectedDisc, throwSettings, wind, onMeasure, onFlightComplete, activeHole, activeCourse]);
 
     // Update click handler when mode changes
     useEffect(() => {
@@ -245,7 +245,7 @@ const MapCanvas = forwardRef(({ onMeasure, onFlightComplete, onMove, selectedDis
         if (mode === 'throw' && lastThrowRef.current && mapRef.current) {
             handleThrowClick(lastThrowRef.current, mapRef.current);
         }
-    }, [throwSettings, wind, selectedDisc, activeHole, handleThrowClick]);
+    }, [throwSettings, wind, selectedDisc, activeHole, activeCourse, handleThrowClick]);
 
     function handleThrowClick(lngLat, map) {
         if (!selectedDisc) return;
