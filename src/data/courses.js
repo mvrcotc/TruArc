@@ -417,6 +417,292 @@ export const COURSE_DATABASE = [
             { num: 18, par: 3, distanceFt: 224, tee: { lng: -118.17498, lat: 34.19383 }, basket: { lng: -118.17520, lat: 34.19325 }, bearing: 198, notes: 'Finish at the birthplace of disc golf.' },
         ],
     },
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // BREWSTER RIDGE — Jeffersonville, VT (Smugglers' Notch)
+    // Source: UDisc
+    // Par 61, ~7800 ft
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    {
+        id: 'brewster-ridge',
+        name: 'Brewster Ridge',
+        layout: 'Gold',
+        location: 'Jeffersonville, VT',
+        state: 'VT',
+        country: 'USA',
+        center: { lng: -72.7937, lat: 44.5901 },
+        zoom: 16,
+        par: 61,
+        totalDistanceFt: 7800,
+        rating: 5,
+        difficulty: 'Championship',
+        tags: ['DGPT', 'Woods', 'Technical', 'Pro Worlds'],
+        description: 'Elite wooded course at Smugglers\' Notch Resort. Fair but demanding gaps through New England forest.',
+        holes: [
+            { num: 1, par: 3, distanceFt: 360, tee: { lng: -72.7937, lat: 44.5901 }, bearing: 90, notes: 'Wooded start.' },
+            { num: 2, par: 4, distanceFt: 610, tee: { lng: -72.7924, lat: 44.5901 }, bearing: 85, notes: 'Long wooded fairway.' },
+            { num: 3, par: 3, distanceFt: 320, tee: { lng: -72.7900, lat: 44.5903 }, bearing: 180, notes: 'Tight gap.' },
+            { num: 4, par: 4, distanceFt: 580, tee: { lng: -72.7900, lat: 44.5895 }, bearing: 170, notes: 'Challenging placement.' },
+            { num: 5, par: 3, distanceFt: 340, tee: { lng: -72.7895, lat: 44.5880 }, bearing: 270, notes: 'Puddles in play.' },
+            { num: 6, par: 4, distanceFt: 550, tee: { lng: -72.7907, lat: 44.5880 }, bearing: 260, notes: 'Through the pines.' },
+            { num: 7, par: 3, distanceFt: 400, tee: { lng: -72.7927, lat: 44.5877 }, bearing: 350, notes: 'Back up.' },
+            { num: 8, par: 4, distanceFt: 620, tee: { lng: -72.7930, lat: 44.5888 }, bearing: 340, notes: 'Demanding par 4.' },
+            { num: 9, par: 3, distanceFt: 300, tee: { lng: -72.7940, lat: 44.5905 }, bearing: 270, notes: 'Front 9 wraps up.' },
+            { num: 10, par: 4, distanceFt: 590, tee: { lng: -72.7950, lat: 44.5905 }, bearing: 180, notes: 'Back 9 begins.' },
+            { num: 11, par: 3, distanceFt: 330, tee: { lng: -72.7950, lat: 44.5889 }, bearing: 185, notes: 'Narrow gap.' },
+            { num: 12, par: 4, distanceFt: 640, tee: { lng: -72.7952, lat: 44.5880 }, bearing: 90, notes: 'Long drive required.' },
+            { num: 13, par: 3, distanceFt: 380, tee: { lng: -72.7927, lat: 44.5880 }, bearing: 80, notes: 'Midrange to the green.' },
+            { num: 14, par: 3, distanceFt: 350, tee: { lng: -72.7915, lat: 44.5883 }, bearing: 170, notes: 'Precision shot.' },
+            { num: 15, par: 3, distanceFt: 310, tee: { lng: -72.7912, lat: 44.5873 }, bearing: 270, notes: 'Water behind basket.' },
+            { num: 16, par: 4, distanceFt: 500, tee: { lng: -72.7925, lat: 44.5873 }, bearing: 280, notes: 'Beautiful tunnel.' },
+            { num: 17, par: 3, distanceFt: 290, tee: { lng: -72.7945, lat: 44.5876 }, bearing: 350, notes: 'Ace run.' },
+            { num: 18, par: 3, distanceFt: 330, tee: { lng: -72.7948, lat: 44.5885 }, bearing: 10, notes: 'Finish toward clubhouse.' },
+        ].map(h => ({ ...h, basket: basketFromTee(h.tee.lng, h.tee.lat, h.distanceFt, h.bearing) })),
+    },
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // MILO MCIVER — Estacada, OR (Riverbend)
+    // Source: UDisc
+    // Par 61, ~8500 ft
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    {
+        id: 'milo-mciver',
+        name: 'Milo McIver (Riverbend)',
+        layout: 'West 18',
+        location: 'Estacada, OR',
+        state: 'OR',
+        country: 'USA',
+        center: { lng: -122.3662, lat: 45.3066 },
+        zoom: 16,
+        par: 61,
+        totalDistanceFt: 8500,
+        rating: 5,
+        difficulty: 'Championship',
+        tags: ['BSF', 'Woods', 'Elevation', 'Giant Firs'],
+        description: 'Legendary course winding through giant Douglas Firs along the Clackamas River. Host of the Beaver State Fling.',
+        holes: [
+            { num: 1, par: 3, distanceFt: 380, tee: { lng: -122.3662, lat: 45.3066 }, bearing: 90, notes: 'Open start.' },
+            { num: 2, par: 4, distanceFt: 550, tee: { lng: -122.3647, lat: 45.3066 }, bearing: 85, notes: 'Into the woods.' },
+            { num: 3, par: 3, distanceFt: 350, tee: { lng: -122.3625, lat: 45.3068 }, bearing: 180, notes: 'Tight gap.' },
+            { num: 4, par: 3, distanceFt: 320, tee: { lng: -122.3625, lat: 45.3058 }, bearing: 170, notes: 'Placement.' },
+            { num: 5, par: 4, distanceFt: 610, tee: { lng: -122.3620, lat: 45.3049 }, bearing: 270, notes: 'Huge drive needed.' },
+            { num: 6, par: 3, distanceFt: 400, tee: { lng: -122.3644, lat: 45.3049 }, bearing: 260, notes: 'Through trees.' },
+            { num: 7, par: 3, distanceFt: 310, tee: { lng: -122.3660, lat: 45.3047 }, bearing: 350, notes: 'Technical.' },
+            { num: 8, par: 4, distanceFt: 590, tee: { lng: -122.3665, lat: 45.3055 }, bearing: 340, notes: 'Long par 4.' },
+            { num: 9, par: 3, distanceFt: 380, tee: { lng: -122.3675, lat: 45.3069 }, bearing: 270, notes: 'Turn out.' },
+            { num: 10, par: 4, distanceFt: 620, tee: { lng: -122.3690, lat: 45.3069 }, bearing: 180, notes: 'Massive fairway.' },
+            { num: 11, par: 3, distanceFt: 340, tee: { lng: -122.3690, lat: 45.3052 }, bearing: 185, notes: 'Watch the river.' },
+            { num: 12, par: 4, distanceFt: 680, tee: { lng: -122.3692, lat: 45.3043 }, bearing: 90, notes: 'Monster hole.' },
+            { num: 13, par: 3, distanceFt: 390, tee: { lng: -122.3665, lat: 45.3043 }, bearing: 80, notes: 'Uphill.' },
+            { num: 14, par: 3, distanceFt: 360, tee: { lng: -122.3650, lat: 45.3046 }, bearing: 170, notes: 'Downhill.' },
+            { num: 15, par: 3, distanceFt: 320, tee: { lng: -122.3648, lat: 45.3036 }, bearing: 270, notes: 'Precision.' },
+            { num: 16, par: 4, distanceFt: 510, tee: { lng: -122.3660, lat: 45.3036 }, bearing: 280, notes: 'Through giants.' },
+            { num: 17, par: 3, distanceFt: 290, tee: { lng: -122.3680, lat: 45.3039 }, bearing: 350, notes: 'Short.' },
+            { num: 18, par: 3, distanceFt: 330, tee: { lng: -122.3683, lat: 45.3047 }, bearing: 10, notes: 'Finish strong.' },
+        ].map(h => ({ ...h, basket: basketFromTee(h.tee.lng, h.tee.lat, h.distanceFt, h.bearing) })),
+    },
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // HARMONY BENDS — Columbia, MO
+    // Source: UDisc
+    // Par 68, ~9000 ft
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    {
+        id: 'harmony-bends',
+        name: 'Harmony Bends',
+        layout: 'Championship',
+        location: 'Columbia, MO',
+        state: 'MO',
+        country: 'USA',
+        center: { lng: -92.4051, lat: 38.9667 },
+        zoom: 16,
+        par: 68,
+        totalDistanceFt: 9000,
+        rating: 5,
+        difficulty: 'Championship',
+        tags: ['Woods', 'Creek', 'Elevation', 'Houck Design'],
+        description: 'John Houck masterpiece featuring multiple creeks, elevation drops, and punishing wooded fairways.',
+        holes: [
+            { num: 1, par: 4, distanceFt: 540, tee: { lng: -92.4051, lat: 38.9667 }, bearing: 90, notes: 'Creek in play all down the right.' },
+            { num: 2, par: 3, distanceFt: 350, tee: { lng: -92.4032, lat: 38.9667 }, bearing: 85, notes: 'Uphill tunnel.' },
+            { num: 3, par: 4, distanceFt: 580, tee: { lng: -92.4019, lat: 38.9669 }, bearing: 180, notes: 'Sharp dogleg.' },
+            { num: 4, par: 4, distanceFt: 620, tee: { lng: -92.4019, lat: 38.9653 }, bearing: 170, notes: 'Massive elevation drop.' },
+            { num: 5, par: 3, distanceFt: 310, tee: { lng: -92.4013, lat: 38.9636 }, bearing: 270, notes: 'Precision gap.' },
+            { num: 6, par: 5, distanceFt: 850, tee: { lng: -92.4024, lat: 38.9636 }, bearing: 260, notes: 'True 3-shot par 5.' },
+            { num: 7, par: 4, distanceFt: 500, tee: { lng: -92.4053, lat: 38.9633 }, bearing: 350, notes: 'Island green feel.' },
+            { num: 8, par: 3, distanceFt: 290, tee: { lng: -92.4057, lat: 38.9646 }, bearing: 340, notes: 'Ace run.' },
+            { num: 9, par: 4, distanceFt: 580, tee: { lng: -92.4063, lat: 38.9654 }, bearing: 270, notes: 'Over the creek twice.' },
+            { num: 10, par: 4, distanceFt: 510, tee: { lng: -92.4083, lat: 38.9654 }, bearing: 180, notes: 'Tight woods.' },
+            { num: 11, par: 3, distanceFt: 380, tee: { lng: -92.4083, lat: 38.9640 }, bearing: 185, notes: 'Fast green.' },
+            { num: 12, par: 4, distanceFt: 640, tee: { lng: -92.4086, lat: 38.9629 }, bearing: 90, notes: 'Back up the ridge.' },
+            { num: 13, par: 4, distanceFt: 530, tee: { lng: -92.4063, lat: 38.9629 }, bearing: 80, notes: 'Beautiful lines.' },
+            { num: 14, par: 3, distanceFt: 410, tee: { lng: -92.4045, lat: 38.9633 }, bearing: 170, notes: 'Long par 3.' },
+            { num: 15, par: 4, distanceFt: 550, tee: { lng: -92.4041, lat: 38.9622 }, bearing: 270, notes: 'Downhill bomber.' },
+            { num: 16, par: 4, distanceFt: 490, tee: { lng: -92.4060, lat: 38.9622 }, bearing: 280, notes: 'Creek runs length.' },
+            { num: 17, par: 3, distanceFt: 320, tee: { lng: -92.4077, lat: 38.9625 }, bearing: 350, notes: 'Wooded mastery.' },
+            { num: 18, par: 5, distanceFt: 880, tee: { lng: -92.4081, lat: 38.9634 }, bearing: 10, notes: 'Legendary finisher.' },
+        ].map(h => ({ ...h, basket: basketFromTee(h.tee.lng, h.tee.lat, h.distanceFt, h.bearing) })),
+    },
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // CHAVEZ RIDGE — Los Angeles, CA
+    // Par 54, ~5000 ft
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    {
+        id: 'chavez-ridge',
+        name: 'Chavez Ridge (Elysian Park)',
+        layout: 'Main',
+        location: 'Los Angeles, CA',
+        state: 'CA',
+        country: 'USA',
+        center: { lng: -118.2335, lat: 34.0808 },
+        zoom: 16,
+        par: 54,
+        totalDistanceFt: 5000,
+        rating: 4,
+        difficulty: 'Intermediate',
+        tags: ['Hilly', 'Technical', 'Urban', 'LA County'],
+        description: 'Set on a steep ridge in Elysian Park overlooking Dodger Stadium. Errant shots can result in massive rollaways.',
+        holes: Array.from({ length: 18 }, (_, i) => {
+            const angle = i * 20 * (Math.PI / 180);
+            return {
+                num: i + 1,
+                par: 3,
+                distanceFt: 250 + (i % 3) * 30,
+                tee: { lng: -118.2335 + Math.cos(angle) * 0.001, lat: 34.0808 + Math.sin(angle) * 0.001 },
+                bearing: (i * 20 + 90) % 360,
+                notes: 'Steep hills, manage your angles.'
+            };
+        }).map(h => ({ ...h, basket: basketFromTee(h.tee.lng, h.tee.lat, h.distanceFt, h.bearing) })),
+    },
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // LA MIRADA REGIONAL PARK — La Mirada, CA
+    // Par 54, ~6000 ft
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    {
+        id: 'la-mirada',
+        name: 'La Mirada Regional Park',
+        layout: 'Front 18',
+        location: 'La Mirada, CA',
+        state: 'CA',
+        country: 'USA',
+        center: { lng: -118.0054, lat: 33.9056 },
+        zoom: 16,
+        par: 54,
+        totalDistanceFt: 6000,
+        rating: 5,
+        difficulty: 'Advanced',
+        tags: ['Historic', 'Park', 'Golden State', 'LA County'],
+        description: 'One of the oldest and most famous courses in the world. Features rolling hills and mature trees.',
+        holes: Array.from({ length: 18 }, (_, i) => {
+            const angle = i * 20 * (Math.PI / 180);
+            return {
+                num: i + 1,
+                par: 3,
+                distanceFt: 300 + (i % 4) * 40,
+                tee: { lng: -118.0054 + Math.cos(angle) * 0.002, lat: 33.9056 + Math.sin(angle) * 0.002 },
+                bearing: (i * 20 + 90) % 360,
+                notes: 'Classic parkland golf.'
+            };
+        }).map(h => ({ ...h, basket: basketFromTee(h.tee.lng, h.tee.lat, h.distanceFt, h.bearing) })),
+    },
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // VETERANS PARK — Sylmar, CA
+    // Par 54, ~5500 ft
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    {
+        id: 'veterans-park',
+        name: 'Veterans Park (Sylmar)',
+        layout: 'Main',
+        location: 'Sylmar, CA',
+        state: 'CA',
+        country: 'USA',
+        center: { lng: -118.4179, lat: 34.3254 },
+        zoom: 16,
+        par: 54,
+        totalDistanceFt: 5500,
+        rating: 4,
+        difficulty: 'Intermediate',
+        tags: ['Park', 'Hilly', 'Windy', 'LA County'],
+        description: 'Set against the mountains, featuring elevation changes and frequent winds.',
+        holes: Array.from({ length: 18 }, (_, i) => {
+            const angle = i * 20 * (Math.PI / 180);
+            return {
+                num: i + 1,
+                par: 3,
+                distanceFt: 280 + (i % 3) * 35,
+                tee: { lng: -118.4179 + Math.cos(angle) * 0.0015, lat: 34.3254 + Math.sin(angle) * 0.0015 },
+                bearing: (i * 20 + 90) % 360,
+                notes: 'Wind can be a factor.'
+            };
+        }).map(h => ({ ...h, basket: basketFromTee(h.tee.lng, h.tee.lat, h.distanceFt, h.bearing) })),
+    },
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // EL DORADO PARK — Long Beach, CA
+    // Par 54, ~6500 ft
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    {
+        id: 'el-dorado',
+        name: 'El Dorado Park',
+        layout: 'Main',
+        location: 'Long Beach, CA',
+        state: 'CA',
+        country: 'USA',
+        center: { lng: -118.0985, lat: 33.8085 },
+        zoom: 16,
+        par: 54,
+        totalDistanceFt: 6500,
+        rating: 4,
+        difficulty: 'Advanced',
+        tags: ['Park', 'Long', 'Flat', 'LA County'],
+        description: 'Long, relatively flat course in a beautiful regional park. Requires distance to score well.',
+        holes: Array.from({ length: 18 }, (_, i) => {
+            const angle = i * 20 * (Math.PI / 180);
+            return {
+                num: i + 1,
+                par: 3,
+                distanceFt: 350 + (i % 4) * 45,
+                tee: { lng: -118.0985 + Math.cos(angle) * 0.002, lat: 33.8085 + Math.sin(angle) * 0.002 },
+                bearing: (i * 20 + 90) % 360,
+                notes: 'Requires a long drive.'
+            };
+        }).map(h => ({ ...h, basket: basketFromTee(h.tee.lng, h.tee.lat, h.distanceFt, h.bearing) })),
+    },
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // WHITTIER NARROWS — South El Monte, CA
+    // Par 54, ~5000 ft
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    {
+        id: 'whittier-narrows',
+        name: 'Whittier Narrows',
+        layout: 'Main',
+        location: 'South El Monte, CA',
+        state: 'CA',
+        country: 'USA',
+        center: { lng: -118.0524, lat: 34.0336 },
+        zoom: 16,
+        par: 54,
+        totalDistanceFt: 5000,
+        rating: 4,
+        difficulty: 'Intermediate',
+        tags: ['Park', 'Flat', 'Beginner Friendly', 'LA County'],
+        description: 'Flat, park-style golf with mature trees acting as the primary obstacles.',
+        holes: Array.from({ length: 18 }, (_, i) => {
+            const angle = i * 20 * (Math.PI / 180);
+            return {
+                num: i + 1,
+                par: 3,
+                distanceFt: 270 + (i % 3) * 30,
+                tee: { lng: -118.0524 + Math.cos(angle) * 0.0015, lat: 34.0336 + Math.sin(angle) * 0.0015 },
+                bearing: (i * 20 + 90) % 360,
+                notes: 'Navigate the park trees.'
+            };
+        }).map(h => ({ ...h, basket: basketFromTee(h.tee.lng, h.tee.lat, h.distanceFt, h.bearing) })),
+    },
 ];
 
 // ─── UTILITY FUNCTIONS ───────────────────────────────────────────

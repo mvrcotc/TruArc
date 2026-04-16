@@ -57,6 +57,17 @@ const MapCanvas = forwardRef(({ onMeasure, onFlightComplete, onMove, selectedDis
                 duration: 1500,
             });
         },
+        standOnTee(hole) {
+            const map = mapRef.current;
+            if (!map || !hole) return;
+            map.flyTo({
+                center: [hole.tee.lng, hole.tee.lat],
+                zoom: 21.5, // puts the camera extremely close to ground
+                pitch: 85,  // nearly horizontal look
+                bearing: hole.bearing || 0,
+                duration: 2500,
+            });
+        },
         getMap() {
             return mapRef.current;
         },
@@ -94,10 +105,11 @@ const MapCanvas = forwardRef(({ onMeasure, onFlightComplete, onMove, selectedDis
             zoom: 17,
             pitch: 50,
             bearing: -20,
+            maxPitch: 85,
             maxZoom: 22,
             minZoom: 10,
-            // Faster first paint than satellite-streets (still satellite imagery)
-            style: 'mapbox://styles/mapbox/satellite-v9',
+            // Mapbox standard-satellite gives true 3D volumetric trees
+            style: 'mapbox://styles/mapbox/standard-satellite',
         });
 
         // `mapRef` is assigned only after `load`, so never use it to detect timeout —
@@ -128,6 +140,24 @@ const MapCanvas = forwardRef(({ onMeasure, onFlightComplete, onMove, selectedDis
         map.on('error', (e) => {
             clearTimeout(timeoutId);
             setMapError(e.error?.message || 'Map failed to load.');
+        });
+
+        map.on('style.load', () => {
+            if (instanceRemoved) return;
+            try {
+                // Mapbox Standard configs for full 3D environment
+                map.setConfigProperty('basemap', 'show3dTrees', true);
+                map.setConfigProperty('basemap', 'show3dObjects', true);
+                
+                // Register custom 3D model for our fairways
+                try {
+                    map.addModel('tree-model', '/models/tree.glb');
+                } catch (addErr) {
+                    console.log('Model already registered or failed:', addErr.message);
+                }
+            } catch (e) {
+                console.warn('Failed to set standard basemap config:', e);
+            }
         });
 
         map.on('load', () => {
@@ -421,14 +451,14 @@ const MapCanvas = forwardRef(({ onMeasure, onFlightComplete, onMove, selectedDis
         course.holes.forEach(hole => {
             // Tee marker
             const teeEl = createHoleMarker(hole.num, 'tee');
-            const teeMarker = new mapboxgl.Marker({ element: teeEl, anchor: 'center' })
+            const teeMarker = new mapboxgl.Marker({ element: teeEl, anchor: 'center', pitchAlignment: 'map', rotationAlignment: 'map' })
                 .setLngLat([hole.tee.lng, hole.tee.lat])
                 .addTo(map);
             holeMarkersRef.current.push(teeMarker);
 
             // Basket marker
             const basketEl = createHoleMarker(hole.num, 'basket');
-            const basketMarker = new mapboxgl.Marker({ element: basketEl, anchor: 'center' })
+            const basketMarker = new mapboxgl.Marker({ element: basketEl, anchor: 'center', pitchAlignment: 'map', rotationAlignment: 'map' })
                 .setLngLat([hole.basket.lng, hole.basket.lat])
                 .addTo(map);
             holeMarkersRef.current.push(basketMarker);
@@ -553,7 +583,7 @@ const MapCanvas = forwardRef(({ onMeasure, onFlightComplete, onMove, selectedDis
       ">${label}</div>
     `;
 
-        const marker = new mapboxgl.Marker({ element: el, anchor: 'center' })
+        const marker = new mapboxgl.Marker({ element: el, anchor: 'center', pitchAlignment: 'map', rotationAlignment: 'map' })
             .setLngLat([lngLat.lng, lngLat.lat])
             .addTo(map);
 
@@ -761,6 +791,7 @@ const MapCanvas = forwardRef(({ onMeasure, onFlightComplete, onMove, selectedDis
         return coords;
     }
 
+
     // ─── LIDAR LAYER ────────────────────────────────────────────
     useEffect(() => {
         const map = mapRef.current;
@@ -852,18 +883,22 @@ const MapCanvas = forwardRef(({ onMeasure, onFlightComplete, onMove, selectedDis
                     map.addSource(sourceId, { type: 'geojson', data: adjusted });
                     map.addLayer({
                         id: layerId,
-                        type: 'circle',
+                        type: 'model',
                         source: sourceId,
+                        layout: {
+                            'model-id': 'tree-model'
+                        },
                         paint: {
-                            'circle-radius': ['interpolate', ['linear'], ['get', 'heightM'], 0, 1, 5, 2, 15, 4, 30, 6],
-                            'circle-color': 'rgba(0, 128, 0, 0.5)',
-                            'circle-stroke-width': 1,
-                            'circle-stroke-color': 'rgba(0, 160, 0, 0.4)',
+                            // Boost scale enormously to ensure the test model isn't microscopic
+                            'model-scale': [100.0, 100.0, 100.0],
+                            'model-opacity': 1.0,
+                            'model-color': '#228B22' // Adds slight foliage tinting
                         },
                     });
                 }
             })
-            .catch(() => {
+            .catch((err) => {
+                console.error('Obstacle Layer Failed:', err);
                 if (map.getLayer(layerId)) map.removeLayer(layerId);
                 if (map.getSource(sourceId)) map.removeSource(sourceId);
             });

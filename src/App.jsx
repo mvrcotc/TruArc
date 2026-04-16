@@ -128,6 +128,10 @@ export default function App() {
         mapRef.current?.flyTo(lng, lat, zoom);
     }, []);
 
+    const handleStandOnTee = useCallback((hole) => {
+        mapRef.current?.standOnTee?.(hole);
+    }, []);
+
     const handleFlyToLanding = useCallback(() => {
         if (!flightData?.landing) return;
         const lookAt = activeHole?.basket || null;
@@ -211,6 +215,7 @@ export default function App() {
                         onSelectCourse={handleSelectCourse}
                         onSelectHole={handleSelectHole}
                         onFlyToLocation={handleFlyTo}
+                        onStandOnTee={handleStandOnTee}
                         activeCourseId={activeCourse?.id}
                         activeHoleNum={activeHole?.num}
                     />

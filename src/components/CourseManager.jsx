@@ -46,6 +46,7 @@ export default function CourseManager({
     onSelectCourse,
     onSelectHole,
     onFlyToLocation,
+    onStandOnTee,
     activeCourseId,
     activeHoleNum,
 }) {
@@ -204,23 +205,32 @@ export default function CourseManager({
 
                             {/* Hole Navigation Controls */}
                             {activeHoleNum && selectedCourse && (
-                                <div className="flex items-center justify-between px-2 py-1.5 mb-2">
-                                    <button
-                                        onClick={handlePrevHole}
-                                        className="w-7 h-7 rounded-md bg-truarc-card/50 flex items-center justify-center text-truarc-muted hover:text-truarc-text hover:bg-truarc-card transition-colors"
-                                    >
-                                        <ChevronLeft size={14} />
-                                    </button>
-                                    <div className="text-center">
-                                        <div className="text-xs font-mono text-truarc-accent">
-                                            Hole {activeHoleNum} of {selectedCourse.holes.length}
+                                <div className="flex flex-col gap-2 mb-2">
+                                    <div className="flex items-center justify-between px-2 py-1.5">
+                                        <button
+                                            onClick={handlePrevHole}
+                                            className="w-7 h-7 rounded-md bg-truarc-card/50 flex items-center justify-center text-truarc-muted hover:text-truarc-text hover:bg-truarc-card transition-colors"
+                                        >
+                                            <ChevronLeft size={14} />
+                                        </button>
+                                        <div className="text-center">
+                                            <div className="text-xs font-mono text-truarc-accent">
+                                                Hole {activeHoleNum} of {selectedCourse.holes.length}
+                                            </div>
                                         </div>
+                                        <button
+                                            onClick={handleNextHole}
+                                            className="w-7 h-7 rounded-md bg-truarc-card/50 flex items-center justify-center text-truarc-muted hover:text-truarc-text hover:bg-truarc-card transition-colors"
+                                        >
+                                            <ChevronRight size={14} />
+                                        </button>
                                     </div>
-                                    <button
-                                        onClick={handleNextHole}
-                                        className="w-7 h-7 rounded-md bg-truarc-card/50 flex items-center justify-center text-truarc-muted hover:text-truarc-text hover:bg-truarc-card transition-colors"
+                                    <button 
+                                        onClick={() => onStandOnTee?.(selectedCourse.holes.find(h => h.num === activeHoleNum))}
+                                        className="mx-2 py-1.5 rounded-md bg-truarc-accent/20 border border-truarc-accent/40 text-truarc-accent text-[10px] font-mono font-bold hover:bg-truarc-accent/30 transition-colors flex items-center justify-center gap-1.5"
                                     >
-                                        <ChevronRight size={14} />
+                                        <Crosshair size={12} />
+                                        STAND ON TEE
                                     </button>
                                 </div>
                             )}
