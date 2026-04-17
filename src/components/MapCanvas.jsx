@@ -16,6 +16,7 @@ import {
     smoothBezierCurve,
 } from '../utils/flightPhysics';
 import { courseToGeoJSON } from '../data/courses';
+import { applyOffsetToGeoJSON } from '../utils/calibrationOffset';
 
 const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN;
 
@@ -149,11 +150,12 @@ const MapCanvas = forwardRef(({ onMeasure, onFlightComplete, onMove, selectedDis
                 map.setConfigProperty('basemap', 'show3dTrees', true);
                 map.setConfigProperty('basemap', 'show3dObjects', true);
                 
-                // Register custom 3D model for our fairways
+                // Register multiple custom 3D models for variety
                 try {
-                    map.addModel('tree-model', '/models/tree.glb');
+                    map.addModel('tree1', '/models/tree_pineDefaultA.glb');
+                    map.addModel('tree2', '/models/tree_thin_dark.glb');
                 } catch (addErr) {
-                    console.log('Model already registered or failed:', addErr.message);
+                    console.log('Models already registered or failed:', addErr.message);
                 }
             } catch (e) {
                 console.warn('Failed to set standard basemap config:', e);
@@ -886,11 +888,27 @@ const MapCanvas = forwardRef(({ onMeasure, onFlightComplete, onMove, selectedDis
                         type: 'model',
                         source: sourceId,
                         layout: {
-                            'model-id': 'tree-model'
+                            // Pseudo-randomly pick between the 2 models based on the tree's height
+                            // multiplying heightM by 10 and modulo 2 gives a random-feeling distribution
+                            'model-id': [
+                                'match',
+                                ['%', ['round', ['*', ['get', 'heightM'], 10]], 2],
+                                0, 'tree1',
+                                1, 'tree2',
+                                'tree1'
+                            ]
                         },
                         paint: {
-                            // Boost scale enormously to ensure the test model isn't microscopic
-                            'model-scale': [100.0, 100.0, 100.0],
+                            // Dynamically scale the 3D asset based on LiDAR height data (heightM)
+                            // We map 100m to a scale of [6, 6, 10] because the downloaded Kenney models 
+                            // already have a large base size (approx 10 meters tall natively).
+                            'model-scale': [
+                                'interpolate',
+                                ['linear'],
+                                ['get', 'heightM'],
+                                0, ['literal', [0, 0, 0]],
+                                100, ['literal', [6.0, 6.0, 10.0]]
+                            ],
                             'model-opacity': 1.0,
                             'model-color': '#228B22' // Adds slight foliage tinting
                         },
