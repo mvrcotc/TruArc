@@ -26,16 +26,13 @@ automated check against known-real numbers.
    envelopes — for each disc archetype × power level, the expected distance range,
    lateral finish range, apex height range, and shape signature (e.g. "S-curve: max
    right excursion between 40–70% of flight, finishes left of the tee line").
-   Starting targets (advanced-am arm ≈ 60 mph release unless noted):
-   - Destroyer (12/5/-1/3) @100%: 420–480 ft, S-curve, finishes 20–60 ft left
-   - Buzzz (5/4/-1/1) @100%: 280–330 ft, near-straight, < 15 ft lateral finish
-   - Aviar (2/3/0/1) @100%: 240–290 ft
-   - Leopard (6/5/-2/1) @85%: turnover shape, finishes right or straight
-   - Katana (13/5/-3/3) @70% (low power): behaves overstable — fades early, ~280 ft
-     (this "understable disc thrown slow acts stable" inversion is the classic test
-     a fake model fails)
-   - Tailwind/headwind cases: headwind 5 m/s makes understable discs turn more,
-     tailwind makes them fade earlier (direction of effect must be right)
+   **✅ DONE — the authoritative targets live in
+   `tests/ground-truth/flight-envelopes.mjs`** (23 absolute envelopes across four
+   thrower tiers, 12 comparative assertions, machine-checkable shape-signature
+   definitions, and conventions the harness must implement). Highlights of what it
+   encodes: the distance ladder, speed-demand inversions (Katana thrown slow acts
+   overstable; Leopard out-throws Destroyer for a rec arm), headwind/tailwind
+   stability shifts, hyzer/anhyzer/flex lines, and nose-angle penalties.
 2. A field-data format (`data/ground-truth/*.json`) so real throws (from a TechDisc,
    or measured throws at a field) can be added as they're collected, tightening the
    envelopes over time.
