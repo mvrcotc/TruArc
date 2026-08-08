@@ -9,12 +9,13 @@
 import React, { useEffect, useRef, useState, useCallback, forwardRef, useImperativeHandle } from 'react';
 import mapboxgl from 'mapbox-gl';
 import {
-    simulateDiscFlight,
     trajectoryToWGS84,
     localToLngLat,
     measure3DDistance,
     smoothBezierCurve,
 } from '../utils/flightPhysics';
+import { simulateDiscFlightAsync } from '../physics/flightEngine';
+import { buildTerrainProfile } from '../physics/terrainProfile';
 import { courseToGeoJSON } from '../data/courses';
 import { applyOffsetToGeoJSON } from '../utils/calibrationOffset';
 
@@ -79,7 +80,11 @@ const MapCanvas = forwardRef(({ onMeasure, onFlightComplete, onMove, selectedDis
             clearMarkers();
         },
         simulateThrow() {
-            doFlightSimulation();
+            // Pre-existing dead reference (doFlightSimulation was never
+            // defined); wired to actually re-run the last throw.
+            if (lastThrowRef.current && mapRef.current) {
+                handleThrowClick(lastThrowRef.current, mapRef.current);
+            }
         },
         drawCourseLayout(course) {
             drawCourse(course);
@@ -271,6 +276,10 @@ const MapCanvas = forwardRef(({ onMeasure, onFlightComplete, onMove, selectedDis
 
     // Keep track of the last clicked location for live param updates
     const lastThrowRef = useRef(null);
+    // Discards results from a throw that's been superseded by a newer one
+    // before it resolved — the simulation is async now (worker round-trip),
+    // and settings sliders can fire several calls while dragging.
+    const throwRequestIdRef = useRef(0);
 
     // Re-simulate on setting change if we have a standing throw
     useEffect(() => {
@@ -279,18 +288,19 @@ const MapCanvas = forwardRef(({ onMeasure, onFlightComplete, onMove, selectedDis
         }
     }, [throwSettings, wind, selectedDisc, activeHole, activeCourse, handleThrowClick]);
 
-    function handleThrowClick(lngLat, map) {
+    async function handleThrowClick(lngLat, map) {
         if (!selectedDisc) return;
         lastThrowRef.current = lngLat;
+        const myRequestId = ++throwRequestIdRef.current;
 
         try {
             const elevation = map.queryTerrainElevation?.(lngLat) ?? 0;
             const tee = { lng: lngLat.lng, lat: lngLat.lat, elevation };
 
             clearMarkers();
-            
-            // Note: We DO NOT call clearFlightPath() here because drawFlightPath 
-            // uses setData() to update the existing source. Removing and adding 
+
+            // Note: We DO NOT call clearFlightPath() here because drawFlightPath
+            // uses setData() to update the existing source. Removing and adding
             // the source in the same tick causes Mapbox WebGL worker race conditions.
             addMarker(map, lngLat, 'THROW', '#ff6b35');
 
@@ -319,27 +329,25 @@ const MapCanvas = forwardRef(({ onMeasure, onFlightComplete, onMove, selectedDis
                 baseBearing = (Math.atan2(dx, dy) * 180) / Math.PI;
             }
 
-            // Final aim = base bearing + aim slider
+            // Final aim = base bearing + aim slider. (For the 6-DOF engine
+            // this is the ONLY place the aim slider applies — see the note
+            // in flightEngine.js about the legacy double-application bug.)
             const bearing = baseBearing + (throwSettings?.aimAngle || 0);
 
-            // Terrain sampling: fallback if error
-            const getGroundElev = (x, z) => {
-                try {
-                    const { lng, lat } = localToLngLat(x, z, tee, bearing);
-                    const elev = map.queryTerrainElevation?.([lng, lat]);
-                    const absElev = elev ?? tee.elevation ?? 0;
-                    return absElev - (tee.elevation ?? 0);
-                } catch (e) {
-                    return 0;
-                }
-            };
+            // Terrain sampled once up front (main thread only — a worker
+            // can't reach Mapbox), then handed to the engine as a lookup.
+            const terrainProfile = buildTerrainProfile(map, tee, bearing, localToLngLat);
 
-            const flightResult = simulateDiscFlight(
+            const flightResult = await simulateDiscFlightAsync(
                 selectedDisc,
                 throwSettings || { power: 80, aimAngle: 0, releaseAngle: 0, noseAngle: 12 },
                 wind || { speed: 0, direction: 0 },
-                getGroundElev,
+                terrainProfile,
             );
+
+            // A newer throw started while this one was in flight — drop it.
+            if (throwRequestIdRef.current !== myRequestId) return;
+            if (!mapRef.current) return; // unmounted while awaiting
 
             // Convert to WGS84
             const wgs84Points = trajectoryToWGS84(flightResult.points, tee, bearing);

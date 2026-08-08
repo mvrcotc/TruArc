@@ -3,7 +3,10 @@
  * ║  TruArc — Ground-Truth Flight Envelopes (Section 0)             ║
  * ║  Domain-judgment targets the physics engine must satisfy.       ║
  * ╚══════════════════════════════════════════════════════════════════╝
- *
+ */
+import { discReleaseFactor } from '../../src/physics/throwerProfile.js';
+
+/**
  * This file is DATA ONLY. The regression harness (built separately)
  * imports it and asserts every entry against the flight simulator.
  * Nothing in the physics engine may be merged unless this suite passes.
@@ -114,12 +117,12 @@ export const THROWER_TIERS = {
  * under test, from +18 % on a speed-2 putter to −13 % on a speed-12
  * driver. That was a defect in the ground truth, not in any engine.
  *
- * Fitted through the pro numbers above and capped at 1.0, since the tier
- * speed is by definition the thrower's driver speed.
+ * The per-disc scaling factor lives in production code
+ * (src/physics/throwerProfile.js) rather than being duplicated here, so
+ * the app always runs the exact formula this suite calibrates against.
  */
 export function releaseSpeedMphFor(tier, disc, powerPct = 100) {
-    const discFactor = Math.min(1, 0.70 + 0.025 * disc.speed);
-    return tier.releaseSpeedMph * discFactor * (powerPct / 100);
+    return tier.releaseSpeedMph * discReleaseFactor(disc.speed) * (powerPct / 100);
 }
 
 // Default throw used unless overridden: flat, slightly nose-up, aimed
