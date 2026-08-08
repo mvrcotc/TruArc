@@ -82,26 +82,46 @@ export const PRIOR_MAPPING = {
     launchAngleDeg: 6.0,
 };
 
-/** Parameters the calibrator is allowed to move, with hard bounds. */
+/**
+ * Parameters the calibrator is allowed to move, with hard bounds.
+ *
+ * Bounds are PHYSICAL STATEMENTS, not just numeric guardrails, and some
+ * of them exist to forbid degenerate fits. An unconstrained first run
+ * discovered that it could buy distance by driving `Cma_perFade` and
+ * `alphaTrim_perFade` to zero — making a Firebird (fade 4) and a Teebird
+ * (fade 2) the same disc. That scored well and was nonsense: if a flight
+ * number does not change the flight, the model cannot support disc
+ * selection, which is the entire product. Lower bounds below marked
+ * "must matter" encode that a flight number is meaningful.
+ */
 export const CALIBRATION_BOUNDS = {
     CD0_base: [0.02, 0.09],
     CD0_perSpeed: [-0.004, 0],
     CDa: [0.5, 4.0],
-    alpha0Deg: [-8, 2],
+    // Minimum-drag angle sits at or below the zero-lift angle, which is
+    // negative for a cambered disc. A positive value is unphysical.
+    alpha0Deg: [-8, 0],
+
     CL0_base: [0.05, 0.30],
-    CL0_perSpeed: [-0.020, 0],
+    // Faster (sharper-rimmed) discs make less lift at zero α — this is
+    // what creates "speed demand" — but the effect must not be so steep
+    // that a speed-12 driver cannot climb at all at low α, which would
+    // make every drive flat and force fade to be traded away.
+    CL0_perSpeed: [-0.010, -0.001],
     CLa_base: [0.6, 2.5],
-    CLa_perGlide: [0, 0.30],
+    CLa_perGlide: [0.01, 0.30],   // glide must matter
     alphaStallDeg: [18, 35],
+
     alphaTrim_base: [-2, 10],
-    alphaTrim_perTurn: [-4, 0],
-    alphaTrim_perFade: [-3, 0],
+    alphaTrim_perTurn: [-4, -0.1],  // turn must matter
+    alphaTrim_perFade: [-3, -0.2],  // fade must matter
     Cma_base: [0.05, 1.2],
-    Cma_perFade: [0, 0.4],
+    Cma_perFade: [0.03, 0.4],       // fade must matter
+
     Clp: [-0.3, -0.001],
-    Clr: [-0.08, 0],
+    Clr: [-0.08, -0.002],  // advancing-blade coupling is a real effect
     Cmq: [-0.3, -0.001],
-    Cnr: [-0.002, 0],
+    Cnr: [-0.002, -0.00001],
     launchAngleDeg: [0, 16],
 };
 
