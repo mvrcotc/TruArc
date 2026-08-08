@@ -82,23 +82,42 @@ moment — or the coefficients will never stabilize and disc-to-disc relative be
 25–40 % short and the error is worse for slow discs.
 
 **Build:**
-1. **Core engine** (`src/physics/sixDof.js`): state = position (3), velocity (3),
-   orientation (quaternion), angular velocity (3). Forces/moments per Hummel &
-   Hubbard (2003); the open-source Python `frispy` package is the reference
-   implementation to port. Coefficient curves: CL(α), CD(α) (quadratic-in-CL drag
-   polar), pitching moment CM(α), roll/pitch damping, spin-down. RK4 integration
-   (keep), dt ≈ 1–2 ms internally, resampled for rendering.
-2. **Flight-number mapping** (`src/physics/discCoefficients.js`): a single layer
-   mapping (speed, glide, turn, fade) → coefficient curve parameters. This is the
-   ONLY place tuning happens. Calibrate by optimization (grid/Nelder-Mead script in
-   `tools/calibrate.mjs`) minimizing error against the Section 0 envelopes — never
-   by hand-editing constants in the integrator.
-3. **Throw model:** release velocity from a thrower profile (arm-speed scalar, see
-   Section 6), spin from velocity (real ratio ≈ 1 rev per ~2.8 cm of circumference
-   travel; advance ratio matters for turn), hyzer/anhyzer sets initial orientation,
-   nose angle sets initial pitch relative to velocity.
+1. **Core engine** (`src/physics/sixDof.js`): forces/moments per Hummel & Hubbard
+   (2003). Coefficient curves: CL(α) with soft stall, CD(α) quadratic drag polar,
+   pitching moment Cm(α), roll/pitch damping, advancing-blade coupling, spin-down.
+   **✅ DONE.**
+   - **Deviation from the original plan — no quaternion.** A disc is axisymmetric, so
+     its spin *phase* is dynamically irrelevant; integrating it would force dt small
+     enough to resolve ~1200 rpm (tens of thousands of steps per flight) for
+     information immediately discarded. The state is instead `(r, v, n̂, ω_t, s)` —
+     position, velocity, top normal, transverse angular velocity, signed spin — which
+     is exact for an axisymmetric rigid body and puts the gyroscopic term on one
+     readable line. Measured payoff: results agree to **under a foot from dt = 0.001
+     to 0.008 s** (asserted in `tests/physics-invariants.test.mjs`).
+   - **The mechanism.** Cm(α) crosses zero at a mold-specific trim angle. A disc must
+     fly at low α when fast and high α when slow, so: below trim → nose-down moment →
+     precesses into right bank → TURN; above trim → nose-up moment → left bank →
+     FADE. The S-curve, the beginner meat-hook, and both wind effects are consequences
+     of that one line, not scripted phases.
+2. **Flight-number mapping** (`src/physics/discCoefficients.js`): the ONLY place
+   tuning is allowed. Speed → CD0 and CL0 (low CL0 at high speed is what creates
+   "speed demand" and therefore the meat-hook); glide → CLa; turn and fade → the
+   Cm(α) line jointly (they are two readings of one curve, which is why they cannot
+   be mapped independently). **✅ DONE**, with hard bounds per parameter in
+   `CALIBRATION_BOUNDS`.
+3. **Throw model:** release speed accepted directly (mph/m·s⁻¹, matching what a launch
+   monitor measures — the legacy engine's disc-speed-derived velocity is gone), spin
+   scaling with power, hyzer/anhyzer as initial bank, nose angle as true initial angle
+   of attack. Handedness/throw style are inputs, so **forehand and left-handed play
+   come free** from the spin sign. **✅ DONE.**
+   - Calibration: `tools/calibrate.mjs` (Nelder-Mead, 19 parameters, all 35 cases
+     scored simultaneously so no case can be improved by silently trading another).
+     `npm run calibrate`. **✅ DONE.**
 4. **Wind:** 3-D wind vector affecting airspeed (and therefore α and all moments) —
-   headwind/tailwind behavior then falls out correctly for free.
+   headwind/tailwind behavior then falls out correctly for free. **✅ DONE in the
+   core** (wind is inseparable from correct aerodynamics: `v_air = v − w`); verified
+   directionally — headwind lowers α and increases turn, tailwind raises α, kills the
+   turn phase and flattens the flight.
 5. **Web Worker** (`src/physics/worker.js`): simulation off the main thread; API-
    compatible wrapper so `MapCanvas.jsx` keeps calling `simulateDiscFlight(disc,
    throwParams, wind, getGroundElev)` unchanged. Terrain callback becomes an async
@@ -108,6 +127,51 @@ moment — or the coefficients will never stabilize and disc-to-disc relative be
 
 **Acceptance:** All Section 0 envelopes pass, including the low-power Katana and wind
 inversion cases. Existing UI works unchanged.
+
+### Status: core physics complete and verified; calibration in progress
+
+`tests/physics-invariants.test.mjs` — **11/11 passing.** These assert engine
+properties that are independent of calibration and therefore must hold at all times
+(CI runs them as a *blocking* step, unlike the calibration-dependent envelope suite):
+frames and spin signs, timestep convergence, overstable discs never crossing right,
+hyzer/anhyzer line placement, turn increasing with arm speed, the slow-arm meat-hook,
+wind direction-of-effect, LHBH mirroring RHBH exactly, and no energy creation.
+
+**Two sign errors were found and fixed during this work**, both in the derivation
+rather than the code structure, and both caught by instrumenting a real flight rather
+than by re-reading the math:
+
+1. **Bank ↔ normal geometry was inverted.** The claim "banking right tips the normal
+   left" is false — a surface sloping right has a normal tilting *right*. This made
+   α-above-trim produce turn instead of fade, so the sign of the Cm(α) slope had to
+   flip. The header of `sixDof.js` now carries the surface analogy and a
+   hand-checkable precession walkthrough; verify against it before touching a sign.
+2. **The same inverted geometry was repeated in the release-angle code**, so a hyzer
+   input produced a *right* bank.
+
+Neither would have been caught by the envelope suite alone — a wrong-signed model can
+still be fitted to roughly-correct distances, which is precisely why the invariants
+file exists alongside it. This is the concrete argument for spending the stronger
+model on this section.
+
+**Also fixed (Section 0 bug):** `checkInvariants` hardcoded the legacy engine's
+sampling constants and was reporting 18-second drives. Flight time now comes from the
+engine; adapters for engines that don't report it compute it from known constants
+rather than guessing.
+
+**Open question for the user — a ground-truth target, not the physics.** The
+`tailwind-hardens-fade` comparative asserts a tailwind throw finishes further LEFT than
+calm. A tailwind genuinely makes a disc act more overstable (the engine reproduces
+this: no turn phase, flatter flight, higher α), but the flight is also *shorter*, so it
+can fade harder per second and still finish less far left. If calibration cannot
+satisfy this case, the target is the prime suspect — reconsider measuring it on
+`maxRightExcursionFt` or apex instead of landing lateral.
+
+**Remaining for Section 1 (Sonnet tier, steps 5–6):** Web Worker, the API-compatible
+`simulateDiscFlight` shim so `MapCanvas.jsx` is untouched, the terrain-callback
+adaptation (Workers cannot call Mapbox, so elevation must be pre-sampled along the aim
+corridor), the A/B feature flag, and deleting `flightPhysics_debug.js` plus the
+legacy engine and its throwaway adapter once the flag is retired.
 
 **Model:** **Opus 5 / Fable 5** for steps 1–3 (the port, the quaternion/frame math,
 and the calibration methodology — this is the highest-risk code in the project; a

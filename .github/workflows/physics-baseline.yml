@@ -19,12 +19,14 @@ on:
       - 'src/utils/flightPhysics*.js'
       - 'src/physics/**'
       - 'tests/**'
+      - 'tools/calibrate.mjs'
       - 'package.json'
   pull_request:
     paths:
       - 'src/utils/flightPhysics*.js'
       - 'src/physics/**'
       - 'tests/**'
+      - 'tools/calibrate.mjs'
       - 'package.json'
   workflow_dispatch: {}
 
@@ -39,6 +41,12 @@ jobs:
           node-version: 22
 
       - run: npm ci
+
+      # Engine-level invariants (frames, signs, timestep convergence,
+      # handedness, energy). These are NOT calibration-dependent and must
+      # always pass — a failure here means the physics itself broke.
+      - name: Run 6-DOF engine invariants
+        run: npm run test:physics-invariants
 
       - name: Run flight envelope + comparative assertions
         continue-on-error: true

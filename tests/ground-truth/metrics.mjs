@@ -182,16 +182,17 @@ export function checkShape(shape, points, landingIndex, metrics) {
 }
 
 // ─── UNIVERSAL INVARIANTS ────────────────────────────────────────
-// See flight-envelopes.mjs doc comment. Flight-time is approximated
-// from the current engine's fixed dt/sampling constants (dt=0.01s,
-// sampled every 3rd step) since raw points carry no timestamp; this
-// approximation is specific to the current-engine adapter's output
-// shape and should be revisited if the Section 1 engine returns
-// per-point timestamps instead.
-const APPROX_DT = 0.01;
-const APPROX_SAMPLE_EVERY = 3;
+// See flight-envelopes.mjs doc comment.
+//
+// Flight time cannot be recovered from the points alone — they carry no
+// timestamps and each engine samples at its own rate. Engines therefore
+// report it directly as `flightTimeS`; adapters for engines that don't
+// (the legacy one) compute it from their known step constants. If it is
+// absent the time check is skipped rather than guessed, since a wrong
+// guess produces confident nonsense (an earlier version of this file
+// hardcoded one engine's constants and reported 18-second drives).
 
-export function checkInvariants(points, landingIndex) {
+export function checkInvariants(points, landingIndex, flightTimeS = null) {
     const problems = [];
 
     for (let i = 0; i <= landingIndex; i++) {
@@ -202,9 +203,8 @@ export function checkInvariants(points, landingIndex) {
         }
     }
 
-    const timeApproxS = landingIndex * APPROX_DT * APPROX_SAMPLE_EVERY;
-    if (!(timeApproxS >= 2 && timeApproxS <= 14)) {
-        problems.push(`flight time ≈${timeApproxS.toFixed(1)}s outside [2, 14]s`);
+    if (flightTimeS != null && !(flightTimeS >= 2 && flightTimeS <= 14)) {
+        problems.push(`flight time ${flightTimeS.toFixed(1)}s outside [2, 14]s`);
     }
 
     let maxY = -Infinity;

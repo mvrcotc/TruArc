@@ -66,5 +66,10 @@ export function runEnvelope(envelope) {
     };
     const flatGround = () => 0;
 
-    return simulateDiscFlight(envelope.disc, throwParams, wind, flatGround);
+    const result = simulateDiscFlight(envelope.disc, throwParams, wind, flatGround);
+
+    // The legacy engine reports no flight time, but its step constants
+    // are fixed (dt = 0.01 s, one sample every 3rd step), so it can be
+    // recovered exactly rather than guessed.
+    return { ...result, flightTimeS: result.landingIndex * 0.01 * 3 };
 }
