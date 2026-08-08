@@ -245,48 +245,89 @@ shape of every tree on the course; the current pipeline collapses each tree to o
 height number and the app stretches two generic Kenney GLB models to match. Fix: keep
 the shape.
 
-**Build (Python, offline tool — extends `process_lidar.py` / LidarCropper):**
-1. **Acquisition:** given course bounds, fetch USGS 3DEP LAZ tiles automatically
-   (TNM Access API / AWS `usgs-lidar-public` EPT endpoints) instead of manual
-   download. Cache locally.
-2. **Preprocess (PDAL):** reproject → crop to course polygon → SMRF ground
-   classification → height-above-ground (HAG) → noise filter.
-3. **Segmentation:** rasterize a Canopy Height Model (0.5 m), pit-free smoothing,
-   local-maxima treetop detection with height-scaled window, watershed/region-grow
-   crown delineation. Tooling: `lidR` (R) is the gold standard; Python alternatives
-   `pycrown` or WhiteboxTools if staying single-language. Validate on Maple Hill
-   against satellite imagery.
-4. **Per-tree attributes** — this is the payload that kills the generic tree:
-   ```json
-   {
-     "lng": ..., "lat": ..., "groundElevM": ...,
-     "heightM": 21.4,
-     "crownRadiusM": 4.1,
-     "crownBaseM": 6.2,
-     "profile": [0.2, 0.5, 1.0, 0.9, 0.6, 0.2],   // crown radius fraction at 6 height slices — the real silhouette
-     "form": "conifer" | "deciduous",               // classified from profile shape
-     "pointCount": 1840
-   }
-   ```
-5. **Voxel occupancy grid:** vegetation returns binned into a 1 m grid over the
-   course, bit-packed binary (`{course}_voxels.bin` + JSON header with origin/dims),
-   typically a few hundred KB gzipped. This is the physics-collision ground truth —
-   it encodes canopy gaps no tree primitive can represent.
-6. **Terrain:** export a DTM GeoTIFF + a downsampled elevation grid JSON so the flight
-   sim can use LiDAR ground (more accurate than Mapbox DEM, which also currently runs
-   at `exaggeration: 2.0` — visual elevation is 2× reality and must be set to 1.0
-   wherever measurements are read).
-7. **Outputs per course:** `{course}_trees.json`, `{course}_voxels.bin`,
-   `{course}_dtm.json` → uploaded to Firebase Storage/CDN (replaces `public/lidar/`).
+**Build:** a new package, `tools/lidar_pipeline/` (Python), rather than extending
+`process_lidar.py` in place — that script's watch-folder/thin-and-visualize design
+(no bounds, no classification, no cropping) doesn't fit steps 1–2's requirements, and
+LidarCropper is a sibling repo this session had no access to. `process_lidar.py` is
+untouched; it still serves its original role (the calibration-panel LiDAR overlay).
+
+1. **Acquisition** (`acquire.py`) — USGS TNM Access API (`tnmaccess.nationalmap.gov`),
+   not an EPT catalog lookup (simpler, official, stable; EPT streaming noted in the
+   module as a future optimization if whole-tile downloads prove too slow). Cached by
+   filename + size. **✅ DONE.**
+2. **Preprocess** (`preprocess.py`, PDAL) — reproject → crop → conditional SMRF →
+   denoise → HAG → exact crop. **✅ DONE**, with two decisions beyond the original plan:
+   - **All metric filtering happens in a projected (meters) working CRS**, not WGS84 —
+     SMRF/HAG parameters are in meters and would silently misbehave in degrees. The
+     source CRS is kept if already projected (most USGS deliveries are), otherwise a
+     UTM zone is picked from the bbox (`geometry.resolve_working_crs`). Reprojection to
+     WGS84 happens once, at the very end, only for output coordinates.
+   - **SMRF is conditional**, not unconditional as originally planned — most USGS LPC
+     tiles arrive already classified, and re-running SMRF on top of a good
+     classification is wasted work at best, a worse classification at worst
+     (`preprocess.class_counts_indicate_preclassified`).
+3. **Segmentation — NOT implemented.** This is exactly and only
+   `schema.segment_trees(points, working_crs) -> list[TreeRecord]`, currently a stub
+   that raises `NotImplementedError` naming this section. Every other step is built
+   and tested up to this seam: `run_preprocess()` hands it a classified, HAG'd,
+   working-CRS point array; it owes back a list of `TreeRecord`s (schema below,
+   already implemented and tested in full) with lng/lat converted back to WGS84.
+   **This is the piece that needs Opus** — CHM rasterization, pit-free smoothing,
+   height-scaled treetop detection, watershed/region-grow crown delineation
+   (`lidR`/`pycrown`/WhiteboxTools), validated against Maple Hill satellite imagery.
+4. **Per-tree schema** (`schema.py`) — `TreeRecord` dataclass matching the plan exactly
+   (lng/lat/groundElevM/heightM/crownRadiusM/crownBaseM/6-slice profile/form/
+   pointCount), full validation (profile length/range, form enum, height/radius/base
+   sanity), JSON read/write, and a `classify_form()` heuristic (tapering silhouette →
+   conifer, else deciduous) ready for step 3 to call. **✅ DONE.**
+5. **Voxel occupancy grid** (`voxelgrid.py`) — 1 m boolean grid, bit-packed to 1
+   bit/cell (verified within 16 bytes of the theoretical minimum), origin/dims header.
+   Tested against a synthetic two-cluster point cloud with a real gap between them —
+   the gap cell reads unoccupied, the cluster cells read occupied. **✅ DONE.**
+6. **Terrain** (`terrain.py`) — downsampled DTM grid JSON, bilinear query, **missing
+   cells are `null`, never fabricated** (a deliberate accuracy choice: under dense
+   canopy where ground returns are sparse, the consumer should fall back to Mapbox's
+   DEM rather than trust an invented elevation). Verified against a synthetic sloped
+   ground truth (recovers the exact slope) and a synthetic gap (returns `None`, not an
+   interpolated guess). GeoTIFF export is a thin, PDAL-only function, isolated from the
+   tested grid-building logic. **✅ DONE.**
+7. **Output upload** (`storage.py`) — Firebase Storage, `lidar/{course_id}/...`,
+   replacing `public/lidar/`. Partial-failure-tolerant (one file's upload error doesn't
+   abort the batch) and partial-state-tolerant (uploads whatever outputs exist — a
+   course processed before step 3 lands correctly uploads voxels+DTM without an error
+   about the missing tree inventory). **✅ DONE.**
+   Orchestrated end-to-end by `pipeline.py` (`python -m tools.lidar_pipeline.pipeline
+   --course <id>`), which derives course bounds directly from the *existing*
+   `src/data/courses.js` hole data (`geometry.course_bbox_from_holes`, 45 m buffer past
+   the treeline; a hand-drawn override goes in `bounds/{course_id}.geojson` — see
+   `bounds/README.md`) rather than requiring a boundary file to exist before the
+   pipeline can run on any course at all. `--skip-trees` stops cleanly before step 3.
+
+**What this session could and couldn't verify:** no PDAL system library is installable
+in this sandbox, and outbound network is allowlisted to npm/PyPI/Anthropic only — USGS,
+AWS, and Firebase are all unreachable here, the same category of gap as Section 1's
+missing Mapbox token. Everything free of those two dependencies **was** built and
+tested for real, including with actual coordinate transforms (`pyproj`, confirmed
+working fully offline) and against the *real* `src/data/courses.js` (not a fixture —
+`pipeline.load_course_holes('maple-hill-gold')` genuinely shells out to Node and
+returns real hole data). 86 tests, `tests/lidar_pipeline/`, wired into CI as a blocking
+step (`.github/workflows/lidar-pipeline-tests.yml`). PDAL pipeline JSON is tested for
+correct stage order/parameters, never executed; the acquisition HTTP flow is tested
+against a fixture built from the TNM API's documented response schema, never called
+live. **A first real run against Maple Hill — with PDAL and network access — is the
+actual integration test and hasn't happened yet.**
 
 **Acceptance:** Maple Hill processed end-to-end; spot-check ≥ 20 trees against
 satellite imagery for position (< 2 m) and crown extent (< 25 %); output for a full
-course < 5 MB.
+course < 5 MB. **Not yet met** — blocked on step 3 (Opus) and then a real environment
+run (PDAL + network), not on anything remaining in this session's scope.
 
 **Model:** **Opus 5** for step 3 (segmentation parameter choices and validation logic —
-quality here decides whether the app is trustworthy in woods). **Sonnet 5** for steps
-1–2 and 4–7 (well-trodden PDAL/CLI/serialization work).
-Estimated size: 1 session Opus, 2 sessions Sonnet.
+quality here decides whether the app is trustworthy in woods) — entry point:
+`tools/lidar_pipeline/schema.segment_trees()`. **Sonnet 5** for steps 1–2 and 4–7
+(well-trodden PDAL/CLI/serialization work) — **done**.
+Estimated size: 1 session Opus, 2 sessions Sonnet. **Actual: 1 Sonnet session for
+steps 1, 2, 4–7 plus the full test suite.**
 
 ---
 

@@ -7,4 +7,6 @@
 pdal>=3.0
 numpy>=1.24
 requests>=2.31
+pyproj>=3.6       # Coordinate reprojection for the course-bounds/tree-inventory pipeline
 boto3>=1.28       # Optional: for Mapbox S3 upload
+firebase-admin>=6.5   # Optional: for tools/lidar_pipeline upload to Firebase Storage

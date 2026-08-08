@@ -1,0 +1,53 @@
+name: LiDAR Pipeline Tests
+
+# Unit tests for tools/lidar_pipeline (Section 2 — docs/ACCURACY_ROADMAP.md).
+# Covers every function that doesn't require PDAL or live network access:
+# geometry/CRS math, PDAL pipeline-JSON construction (structure only, not
+# execution), tree schema validation, voxel-grid pack/unpack, DTM gridding,
+# and USGS API request/response handling against fixtures. Blocking — these
+# are correctness bugs in pure logic, not calibration-quality judgment
+# calls (contrast with physics-baseline.yml's envelope suite).
+#
+# NOT covered here (no PDAL system library, no network to USGS/AWS/Firebase
+# in CI or in the sandbox this was developed in): actual PDAL pipeline
+# execution, live USGS tile download, live Firebase upload. See the
+# module docstrings in acquire.py, preprocess.py, terrain.py, and
+# storage.py for exactly what's verified vs. what needs a real run.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'tools/lidar_pipeline/**'
+      - 'tests/lidar_pipeline/**'
+      - 'requirements.txt'
+  pull_request:
+    paths:
+      - 'tools/lidar_pipeline/**'
+      - 'tests/lidar_pipeline/**'
+      - 'requirements.txt'
+  workflow_dispatch: {}
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # PDAL itself is intentionally NOT installed here — it needs a
+      # system library (conda-forge, not pip) and the tests are designed
+      # to not need it (see module docstrings). Installing the full PDAL
+      # toolchain just for CI is real setup cost for zero coverage gain
+      # given the current test design; revisit once step 3 (segmentation)
+      # needs PDAL-dependent logic that's actually worth testing here.
+      - run: pip install numpy requests pyproj
+
+      - name: Run lidar_pipeline test suite
+        run: python -m unittest discover -s tests/lidar_pipeline -p "test_*.py" -v
