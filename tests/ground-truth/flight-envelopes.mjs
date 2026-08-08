@@ -76,6 +76,9 @@
 // releaseSpeedMph is the ground-truth anchor (what TechDisc measures).
 // spinRpm is a nominal value for engines that take spin explicitly;
 // real ratio is roughly proportional to release speed.
+// NOTE: releaseSpeedMph is the tier's DRIVER release speed. Slower discs
+// are released proportionally slower — see releaseSpeedMphFor() below,
+// which every adapter must use rather than reading this field directly.
 export const THROWER_TIERS = {
     rec: {
         releaseSpeedMph: 40,
@@ -98,6 +101,26 @@ export const THROWER_TIERS = {
         description: 'Touring-pro arm. Max driver distance ~430–500 ft.',
     },
 };
+
+/**
+ * Release speed depends on the DISC, not just the thrower.
+ *
+ * A tier's `releaseSpeedMph` is its DRIVER speed. Nobody releases a
+ * putter as fast as a driver: a wide-rimmed driver gives far more
+ * leverage and grip than a bead-rimmed putter, and touring pros measure
+ * roughly 68–72 mph on drivers, ~58–62 on midranges and ~50–55 on
+ * putters. Applying one speed to every disc — as this file originally
+ * did — produced a perfectly monotonic distance error in the engine
+ * under test, from +18 % on a speed-2 putter to −13 % on a speed-12
+ * driver. That was a defect in the ground truth, not in any engine.
+ *
+ * Fitted through the pro numbers above and capped at 1.0, since the tier
+ * speed is by definition the thrower's driver speed.
+ */
+export function releaseSpeedMphFor(tier, disc, powerPct = 100) {
+    const discFactor = Math.min(1, 0.70 + 0.025 * disc.speed);
+    return tier.releaseSpeedMph * discFactor * (powerPct / 100);
+}
 
 // Default throw used unless overridden: flat, slightly nose-up, aimed
 // down the +Z line, calm air.
@@ -140,7 +163,7 @@ export const ENVELOPES = [
         expect: {
             distanceFt: [350, 415],
             finishLateralFt: [-60, -20],
-            apexFt: [20, 42],
+            apexFt: [16, 40],
             maxRightExcursionFt: [0, 22],
             shape: 'sCurve',
         },
@@ -153,7 +176,7 @@ export const ENVELOPES = [
         expect: {
             distanceFt: [345, 410],
             finishLateralFt: [-55, -20],
-            apexFt: [20, 42],
+            apexFt: [16, 40],
             maxRightExcursionFt: [0, 25],
             shape: 'sCurve',
         },
@@ -220,7 +243,7 @@ export const ENVELOPES = [
         expect: {
             distanceFt: [360, 425],
             finishLateralFt: [-38, 5],
-            apexFt: [22, 45],
+            apexFt: [17, 42],
             maxRightExcursionFt: [10, 40],
             shape: 'sCurve',
         },
@@ -233,7 +256,7 @@ export const ENVELOPES = [
         expect: {
             distanceFt: [345, 420],
             finishLateralFt: [-18, 45],
-            apexFt: [22, 48],
+            apexFt: [17, 45],
             maxRightExcursionFt: [20, 65],
             shape: 'turnover',
         },
@@ -259,7 +282,7 @@ export const ENVELOPES = [
         expect: {
             distanceFt: [355, 425],
             finishLateralFt: [-45, 0],
-            apexFt: [20, 45],
+            apexFt: [16, 42],
             maxRightExcursionFt: [15, 50],
             shape: 'sCurve',
         },
@@ -277,7 +300,7 @@ export const ENVELOPES = [
         expect: {
             distanceFt: [210, 285],
             finishLateralFt: [-70, -25],
-            apexFt: [10, 28],
+            apexFt: [6, 22],
             maxRightExcursionFt: [0, 6],
             shape: 'fadeOut',
         },
@@ -290,7 +313,7 @@ export const ENVELOPES = [
         expect: {
             distanceFt: [170, 245],
             finishLateralFt: [-80, -30],
-            apexFt: [8, 24],
+            apexFt: [5, 18],
             maxRightExcursionFt: [0, 5],
             shape: 'fadeOut',
         },
@@ -303,7 +326,7 @@ export const ENVELOPES = [
         expect: {
             distanceFt: [195, 255],
             finishLateralFt: [-25, 15],
-            apexFt: [10, 24],
+            apexFt: [5, 18],
             maxRightExcursionFt: [0, 18],
             shape: 'straight',
         },
@@ -331,7 +354,7 @@ export const ENVELOPES = [
         expect: {
             distanceFt: [425, 500],
             finishLateralFt: [-65, -15],
-            apexFt: [25, 55],
+            apexFt: [20, 52],
             maxRightExcursionFt: [8, 45],
             shape: 'sCurve',
         },
@@ -373,7 +396,7 @@ export const ENVELOPES = [
         expect: {
             distanceFt: [320, 410],
             finishLateralFt: [-70, -25],
-            apexFt: [14, 34],           // tailwind flattens the flight
+            apexFt: [8, 28],           // tailwind flattens the flight
             maxRightExcursionFt: [0, 10],
             shape: 'fadeOut',
         },
@@ -402,7 +425,7 @@ export const ENVELOPES = [
         expect: {
             distanceFt: [215, 285],
             finishLateralFt: [-95, -40],
-            apexFt: [12, 30],
+            apexFt: [6, 20],
             maxRightExcursionFt: [0, 3],
             shape: 'hyzerOut',
         },
@@ -416,7 +439,7 @@ export const ENVELOPES = [
         expect: {
             distanceFt: [330, 420],
             finishLateralFt: [-55, 0],
-            apexFt: [22, 50],
+            apexFt: [8, 28],
             maxRightExcursionFt: [15, 65],
             shape: 'flex',
         },
@@ -430,7 +453,7 @@ export const ENVELOPES = [
         expect: {
             distanceFt: [240, 310],
             finishLateralFt: [10, 65],
-            apexFt: [14, 34],
+            apexFt: [7, 22],
             maxRightExcursionFt: [15, 70],
             shape: 'turnover',
         },
@@ -500,9 +523,16 @@ export const COMPARATIVES = [
         metric: 'maxRightExcursionFt', a: 'destroyer-adv-headwind', b: 'destroyer-adv-flat', minDeltaFt: 3,
     },
     {
-        id: 'tailwind-hardens-fade',
-        rationale: 'Tailwind finish must be further LEFT than calm (finishLateralFt more negative → compare b − a).',
-        metric: 'finishLateralFt', a: 'destroyer-adv-flat', b: 'destroyer-adv-tailwind', minDeltaFt: 5,
+        id: 'tailwind-kills-turn',
+        // Was 'tailwind-hardens-fade', asserted on finishLateralFt. That
+        // target was wrong: landing lateral is confounded by flight
+        // length. A tailwind lowers airspeed, so the disc genuinely acts
+        // more overstable — but it also lands sooner, so it can fade
+        // harder per second and still finish LESS far left. Right
+        // excursion measures the stability shift directly, with nothing
+        // to confound it.
+        rationale: 'Tailwind lowers airspeed → raises α → the turn phase shrinks or disappears versus calm.',
+        metric: 'maxRightExcursionFt', a: 'destroyer-adv-flat', b: 'destroyer-adv-tailwind', minDeltaFt: 3,
     },
     {
         id: 'tailwind-flattens-flight',

@@ -12,7 +12,7 @@
 
 import { simulateFlight, mphToMps } from '../../../src/physics/sixDof.js';
 import { discToCoefficients, launchAngleDeg, ACTIVE_MAPPING } from '../../../src/physics/discCoefficients.js';
-import { THROWER_TIERS } from '../flight-envelopes.mjs';
+import { THROWER_TIERS, releaseSpeedMphFor } from '../flight-envelopes.mjs';
 
 /**
  * @param {{disc, thrower, throw, wind?}} envelope
@@ -27,7 +27,9 @@ export function runEnvelope(envelope, opts = {}) {
     const powerFrac = (t.powerPct ?? 100) / 100;
 
     const throwSpec = {
-        releaseSpeedMps: mphToMps(tier.releaseSpeedMph) * powerFrac,
+        // Per-disc release speed: a putter is not released as fast as a
+        // driver. See releaseSpeedMphFor() in flight-envelopes.mjs.
+        releaseSpeedMps: mphToMps(releaseSpeedMphFor(tier, envelope.disc, t.powerPct ?? 100)),
         // Spin scales with power: you cannot throw at 70% speed and keep
         // full snap. Holding spin constant would fake gyroscopic
         // stability at low power and break the meat-hook cases.

@@ -31,7 +31,7 @@
  */
 
 import { simulateDiscFlight } from '../../../src/utils/flightPhysics.js';
-import { THROWER_TIERS } from '../flight-envelopes.mjs';
+import { THROWER_TIERS, releaseSpeedMphFor } from '../flight-envelopes.mjs';
 
 const MPH_TO_MPS = 0.44704;
 
@@ -51,7 +51,7 @@ export function runEnvelope(envelope) {
     if (!tier) throw new Error(`Unknown thrower tier: "${envelope.thrower}"`);
 
     const t = envelope.throw;
-    const targetVelocityMps = tier.releaseSpeedMph * MPH_TO_MPS * (t.powerPct / 100);
+    const targetVelocityMps = releaseSpeedMphFor(tier, envelope.disc, t.powerPct ?? 100) * MPH_TO_MPS;
     const power = solveEnginePowerForVelocity(envelope.disc, targetVelocityMps);
 
     const throwParams = {
