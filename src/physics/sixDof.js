@@ -117,10 +117,22 @@ const DISC_RADIUS = DISC_DIAMETER / 2;
 const DISC_AREA = Math.PI * DISC_RADIUS ** 2;
 const GRAVITY = 9.81;
 
-// Moments of inertia for a 175 g golf disc (rim-weighted, so slightly
-// above the thin-uniform-disc value ½mR² = 3.9e-4).
-const I_AXIAL = 7.5e-4;      // about the spin axis n̂
-const I_TRANSVERSE = 3.9e-4; // about any in-plane axis
+// Moments of inertia for a 175 g, 21.1 cm golf disc.
+//
+// Two hard physical bounds pin these down — an earlier version violated
+// both, and the resulting excess precession rate was what made strong
+// fade incompatible with long flights (the calibrator kept pinning every
+// stability parameter to its minimum to escape the resulting spiral):
+//
+//   1. A rim-weighted disc must have MORE axial inertia than a uniform
+//      plate: I_axial > ½mR² = 9.74e-4. (All-mass-at-rim would be
+//      mR² = 1.95e-3, so the physical band is 9.7e-4 … 1.9e-3;
+//      measured golf drivers land around 1.0–1.2e-3.)
+//   2. Perpendicular-axis theorem for a lamina: I_z = I_x + I_y, and by
+//      symmetry I_x = I_y — so I_transverse is EXACTLY I_axial / 2, not
+//      an independently chosen number.
+const I_AXIAL = 1.10e-3;              // about the spin axis n̂
+const I_TRANSVERSE = I_AXIAL / 2;     // about any in-plane axis (lamina)
 
 const DEG = Math.PI / 180;
 const RPM_TO_RAD_S = (2 * Math.PI) / 60;
