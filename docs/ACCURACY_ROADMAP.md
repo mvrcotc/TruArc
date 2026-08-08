@@ -36,10 +36,34 @@ automated check against known-real numbers.
 2. A field-data format (`data/ground-truth/*.json`) so real throws (from a TechDisc,
    or measured throws at a field) can be added as they're collected, tightening the
    envelopes over time.
+   **✅ DONE — `tests/ground-truth/field-data/README.md`** documents the JSON row
+   format and precedence rule; directory is empty and ready for real throws.
 3. CI: envelopes run on every commit touching `flightPhysics*`.
+   **✅ DONE:**
+   - `tests/ground-truth/metrics.mjs` — engine-agnostic metric extraction
+     (distance/lateral-finish/apex/max-right-excursion) and the six shape-signature
+     classifiers (straight/sCurve/hyzerOut/turnover/fadeOut/flex) plus universal
+     invariants (no NaN, apex position, flight-time sanity, no mid-flight energy gain).
+   - `tests/ground-truth/adapters/currentEngine.mjs` — bridges the ground-truth
+     vocabulary (thrower tier release speed in mph) to the current engine's API
+     (which ties velocity to `disc.speed` rating, not release speed — itself part of
+     what Section 1 fixes). This adapter is throwaway: delete it when Section 1 lands.
+   - `tests/flight-envelopes.test.mjs` — Node's built-in test runner (`node --test`,
+     zero new dependencies), wired via `npm run test:physics`.
+   - `.github/workflows/physics-baseline.yml` — runs on every PR/push touching
+     physics files, `continue-on-error: true` since the baseline is known-red (see
+     below), so it stays visible without blocking unrelated PRs.
 
 **Acceptance:** Current engine runs against the suite and fails (documented baseline);
-suite is deterministic and fast (< 5 s).
+suite is deterministic and fast (< 5 s). **✅ MET — measured baseline: 8/35 passing
+(23%)** — 2/23 absolute envelopes (`aviar-adv-flat`, `boss-adv-flat`) and 6/12
+comparatives. Notably `boss-adv-flat` passes its absolute range while the comparative
+`speed-demand-tern-beats-boss` still fails — the engine lands in the right numeric
+window for the wrong structural reason, exactly the kind of false-positive the
+comparative assertions exist to catch. Every headwind/tailwind direction-of-effect
+check fails (`headwind-increases-turn`, `tailwind-hardens-fade`), confirming the
+turn/fade-as-pseudo-force model has no real aerodynamic coupling to airspeed. This is
+the scoreboard Section 1 needs to move to green.
 
 **Model:** **Opus 5 (or Fable 5)** to author the envelope table — the values encode
 disc golf domain judgment and aerodynamic sanity, and wrong targets poison everything

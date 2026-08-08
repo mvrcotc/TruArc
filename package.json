@@ -9,6 +9,7 @@
         "build": "vite build",
         "build:root": "vite build --base=/",
         "preview": "vite preview",
+        "test:physics": "node --test tests/flight-envelopes.test.mjs",
         "predeploy": "npm run build",
         "deploy": "gh-pages -d dist"
     },

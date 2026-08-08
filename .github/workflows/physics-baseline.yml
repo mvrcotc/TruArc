@@ -1,0 +1,45 @@
+name: Flight Physics Ground Truth
+
+# Runs the Section 0 regression harness (docs/ACCURACY_ROADMAP.md) against
+# the flight simulator whenever physics-relevant code or the envelope
+# targets themselves change.
+#
+# NON-BLOCKING BY DESIGN: as of the pre–Section 1 engine, this suite is
+# a documented-red baseline (see docs/ACCURACY_ROADMAP.md §0/§1) — the
+# current turn/fade model cannot pass most envelopes by construction, and
+# that gap is exactly what Section 1 exists to close. `continue-on-error`
+# keeps this from blocking unrelated PRs while the pass/fail counts stay
+# visible in every run's logs, so regressions (or Section 1's progress)
+# are still tracked. Flip `continue-on-error` to `false` once Section 1
+# lands and the suite is expected to pass in full.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/utils/flightPhysics*.js'
+      - 'src/physics/**'
+      - 'tests/**'
+      - 'package.json'
+  pull_request:
+    paths:
+      - 'src/utils/flightPhysics*.js'
+      - 'src/physics/**'
+      - 'tests/**'
+      - 'package.json'
+  workflow_dispatch: {}
+
+jobs:
+  ground-truth:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - run: npm ci
+
+      - name: Run flight envelope + comparative assertions
+        continue-on-error: true
+        run: npm run test:physics
