@@ -11,8 +11,10 @@ import {
     SlidersHorizontal,
     RotateCcw,
     Layers,
+    Zap,
 } from 'lucide-react';
 import FirebaseAuthBar from './FirebaseAuthBar';
+import { getEngineChoice, toggleEngineChoice } from '../physics/engineFlag';
 
 const MODES = [
     { id: 'course', icon: Layers, label: 'Courses', shortcut: 'L' },
@@ -20,6 +22,31 @@ const MODES = [
     { id: 'throw', icon: Disc3, label: 'Throw', shortcut: 'T' },
     { id: 'calibrate', icon: SlidersHorizontal, label: 'Calibrate', shortcut: 'C' },
 ];
+
+/**
+ * Section 1 A/B toggle between the 6-DOF engine and the legacy
+ * pseudo-force engine, for the rollout comparison period — see
+ * src/physics/engineFlag.js. Remove this button along with the flag
+ * once the legacy engine is retired (docs/ACCURACY_ROADMAP.md §1).
+ */
+function EngineToggle() {
+    const [engine, setEngine] = React.useState(getEngineChoice);
+    const isSixDof = engine === 'sixdof';
+
+    return (
+        <button
+            onClick={() => setEngine(toggleEngineChoice())}
+            title={`Physics engine: ${isSixDof ? '6-DOF (new)' : 'Legacy'} — click to switch. Applies to the next throw.`}
+            className={`flex items-center gap-1 px-2 py-1.5 rounded-md text-[10px] font-mono transition-all duration-200 ${isSixDof
+                ? 'text-truarc-accent bg-truarc-accent/10 border border-truarc-accent/30'
+                : 'text-truarc-warn bg-truarc-warn/10 border border-truarc-warn/30'
+                }`}
+        >
+            <Zap size={12} />
+            <span className="hidden sm:inline">{isSixDof ? '6DOF' : 'LEGACY'}</span>
+        </button>
+    );
+}
 
 export default function Toolbar({ mode, onModeChange, onReset }) {
     return (
@@ -65,6 +92,8 @@ export default function Toolbar({ mode, onModeChange, onReset }) {
 
             {/* Spacer */}
             <div className="flex-1" />
+
+            <EngineToggle />
 
             <FirebaseAuthBar />
 

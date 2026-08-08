@@ -48,6 +48,15 @@ jobs:
       - name: Run 6-DOF engine invariants
         run: npm run test:physics-invariants
 
+      # Integration layer (terrain profile sampling/lookup, the shared
+      # thrower-scaling formula). Also blocking — these are plumbing bugs,
+      # not calibration quality.
+      - name: Run physics integration tests
+        run: npm run test:physics-integration
+
       - name: Run flight envelope + comparative assertions
         continue-on-error: true
         run: npm run test:physics
+
+      - name: Build (validates worker bundling)
+        run: npm run build

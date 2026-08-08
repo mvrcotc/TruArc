@@ -159,25 +159,82 @@ sampling constants and was reporting 18-second drives. Flight time now comes fro
 engine; adapters for engines that don't report it compute it from known constants
 rather than guessing.
 
-**Open question for the user — a ground-truth target, not the physics.** The
-`tailwind-hardens-fade` comparative asserts a tailwind throw finishes further LEFT than
-calm. A tailwind genuinely makes a disc act more overstable (the engine reproduces
-this: no turn phase, flatter flight, higher α), but the flight is also *shorter*, so it
-can fade harder per second and still finish less far left. If calibration cannot
-satisfy this case, the target is the prime suspect — reconsider measuring it on
-`maxRightExcursionFt` or apex instead of landing lateral.
+**Resolved — the ground-truth target was wrong, confirmed by the user.** The
+`tailwind-hardens-fade` comparative asserted a tailwind throw finishes further LEFT
+than calm. It was confounded: a tailwind flight is also *shorter*, so it can fade
+harder per second and still finish less far left. Renamed to `tailwind-kills-turn` and
+re-measured on `maxRightExcursionFt`, which reads the stability shift directly. Two
+more targets turned out wrong the same way and were fixed alongside it: **apex targets
+for banked releases** (flex/hyzer/anhyzer had apex set *higher* than the flat throw,
+when banking tilts the lift vector and must produce a *lower* apex — a direction error,
+not a judgment call), and **one release speed applied to every disc regardless of
+speed rating**, which produced a perfectly monotonic distance error (+18% on a putter
+→ −13% on a driver) and is now `releaseSpeedMphFor()` / `discReleaseFactor()`, shared
+between the test suite and production code (`src/physics/throwerProfile.js`) so they
+can never drift apart.
 
-**Remaining for Section 1 (Sonnet tier, steps 5–6):** Web Worker, the API-compatible
-`simulateDiscFlight` shim so `MapCanvas.jsx` is untouched, the terrain-callback
-adaptation (Workers cannot call Mapbox, so elevation must be pre-sampled along the aim
-corridor), the A/B feature flag, and deleting `flightPhysics_debug.js` plus the
-legacy engine and its throwaway adapter once the flag is retired.
+**Calibration status:** `npm run calibrate` (Nelder-Mead, 19 parameters, all 35 cases
+scored jointly). First full run scored well (17/35) by exploiting a physically
+meaningless degree of freedom — it drove fade's effect on the model toward zero,
+making a Teebird and a Firebird nearly the same disc, and bought distance with the
+fade it removed. `CALIBRATION_BOUNDS` now encodes physical constraints, not just
+numeric ranges (every flight number is bounded to *matter*). That surfaced a real bug:
+the engine's moments of inertia were physically impossible (`I_axial` below the
+uniform-disc value for a rim-weighted disc; `I_transverse` an independent guess instead
+of the perpendicular-axis-theorem-mandated `I_axial/2`) — too little rotational inertia
+made the disc over-bank, which is what had made strong fade incompatible with a long
+flight in the first place. Fixed. Current calibrated mapping: **13/35** against the
+corrected ground truth, non-degenerate (fade still meaningfully differentiates molds).
+Three damping parameters pin at their bound wanting *less* damping — a plausible
+physical direction, not disqualifying, and left as a follow-up calibration pass rather
+than blocking the integration work below.
 
-**Model:** **Opus 5 / Fable 5** for steps 1–3 (the port, the quaternion/frame math,
-and the calibration methodology — this is the highest-risk code in the project; a
-frame-convention bug here costs weeks, as the git history already proved once).
-**Sonnet 5** for steps 4–6 (worker plumbing, wrapper, flag).
-Estimated size: 2–3 sessions Opus, 1 session Sonnet.
+**✅ Section 1 steps 4–6 (Sonnet tier) — DONE:**
+- `src/physics/worker.js` — Web Worker hosting both engines behind one message
+  protocol; verified against a real headless Chromium (Node/jsdom have no trustworthy
+  Worker implementation), including 8 concurrent rapid-fire throws with monotonic
+  distance-vs-power and no stale results.
+- `src/physics/flightEngine.js` — `simulateDiscFlightAsync()`, the new public entry
+  point. Output points use the same `{x=right, y=up, z=forward}` local frame as the
+  legacy engine, so `trajectoryToWGS84` / `localToLngLat` / all of MapCanvas's drawing
+  code needed **zero changes**. The call itself had to become `async` (a worker
+  inherently is), with a monotonic request-id guard in `MapCanvas.jsx` so a stale
+  in-flight result from a slider-drag burst can't overwrite a newer one. Falls back to
+  same-thread execution if `Worker` construction fails (SSR, unsupported bundler
+  target).
+- `src/physics/terrainProfile.js` — terrain sampled once on the main thread (a worker
+  can't reach Mapbox) along the throw's bearing and handed over as a lookup table,
+  replacing the legacy per-simulation-step `queryTerrainElevation` calls. Deliberate
+  simplification: indexed by forward distance only, not lateral position — see the
+  file for the reasoning and what would need to change for a course with a severe
+  cross-slope.
+- `src/physics/engineFlag.js` + a toolbar toggle — localStorage-backed A/B switch
+  between `sixdof` (default) and `legacy`, so both engines stay reachable during
+  rollout without a code change.
+- **Fixed a real double-counting bug found while wiring this up:** the legacy call
+  site applied the Aim Angle slider *twice* — once baked into the world bearing, once
+  passed into the physics engine's own internal aim parameter. The 6-DOF engine has no
+  internal aim parameter at all (it always launches along local +Z), which forced the
+  fix: aim now applies exactly once, to the bearing. Documented in `flightEngine.js`;
+  the legacy A/B path is untouched (unaffected, and it's on its way out).
+  Also fixed a pre-existing dead reference (`MapCanvas`'s exposed `simulateThrow()`
+  called an undefined `doFlightSimulation`) found adjacent to this work.
+- `tests/physics-integration.test.mjs` — terrain profile and thrower-scaling unit
+  tests, wired into CI as a blocking step alongside the engine invariants. CI also now
+  runs `npm run build` to catch worker-bundling regressions.
+- **Not done (deferred, low priority):** deleting the legacy engine and its throwaway
+  ground-truth adapter — kept intentionally for the A/B rollout period per the
+  original plan.
+
+**Model:** **Opus 5 / Fable 5** for steps 1–3 (the port, the frame math, the
+calibration methodology, and — as it turned out — the ground-truth corrections and the
+inertia bug, all of which were exactly the "silent and compounding" failure class this
+tier exists for). **Sonnet 5** for steps 4–6 (worker plumbing, the async wrapper, the
+A/B flag) — plumbing and UI work with no physics judgment calls, verified empirically
+against a real browser rather than trusted by inspection.
+Estimated size: 2–3 sessions Opus, 1 session Sonnet. **Actual: ~3 Opus sessions
+(including two rounds of ground-truth and one physics bug found via calibration
+residuals), 1 Sonnet session.**
 
 ---
 

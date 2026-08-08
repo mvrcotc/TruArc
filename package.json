@@ -11,6 +11,7 @@
         "preview": "vite preview",
         "test:physics": "node --test tests/flight-envelopes.test.mjs",
         "test:physics-invariants": "node --test tests/physics-invariants.test.mjs",
+        "test:physics-integration": "node --test tests/physics-integration.test.mjs",
         "calibrate": "node tools/calibrate.mjs",
         "predeploy": "npm run build",
         "deploy": "gh-pages -d dist"
