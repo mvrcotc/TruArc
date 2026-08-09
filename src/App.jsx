@@ -25,6 +25,8 @@ import FlightStats from './components/FlightStats';
 import CourseSearch from './components/CourseSearch';
 import FloatingCompass from './components/FloatingCompass';
 import WeatherPanel from './components/WeatherPanel';
+import TerrainPanel from './components/TerrainPanel';
+import { DEFAULT_TERRAIN } from './map/terrainLayers';
 
 export default function App() {
     const mapRef = useRef(null);
@@ -48,6 +50,12 @@ export default function App() {
     const [observedWeather, setObservedWeather] = useState(null);
     const [weatherState, setWeatherState] = useState('idle'); // idle|loading|ok|unavailable
     const [weatherExpanded, setWeatherExpanded] = useState(false);
+
+    // Relief shading / contours / mesh exaggeration. Terrain legibility is
+    // a property of the PLACE, like wind — not of a throw — so it lives in
+    // the left rail and persists across mode and course changes.
+    const [terrain, setTerrain] = useState(DEFAULT_TERRAIN);
+    const [terrainExpanded, setTerrainExpanded] = useState(false);
     const [measurement, setMeasurement] = useState(null);
     const [flightData, setFlightData] = useState(null);
     const [searchOpen, setSearchOpen] = useState(false);
@@ -340,6 +348,7 @@ export default function App() {
                 editState={editState}
                 editTool={editTool}
                 editDispatch={editDispatch}
+                terrain={terrain}
             />
 
             {/* Tactical Grid Overlay */}
@@ -393,6 +402,25 @@ export default function App() {
                         holeBearingDeg={activeHole?.bearing}
                         expanded={weatherExpanded}
                         onToggle={() => setWeatherExpanded((v) => !v)}
+                    />
+                )}
+
+                {/* Terrain legibility sits with Wind for the same reason —
+                    both describe the ground you're throwing over rather
+                    than the throw.
+                    Unlike Wind it is shown in EVERY player-facing mode,
+                    including 'navigate' (the default, and the one where
+                    you are literally just looking at the ground) and
+                    'measure' (where reading the slope is most of what a
+                    distance between two points means). Only the two
+                    course-admin modes are excluded — they own the whole
+                    rail with their own dense panels. */}
+                {mode !== 'calibrate' && mode !== 'edit' && (
+                    <TerrainPanel
+                        terrain={terrain}
+                        onUpdate={setTerrain}
+                        expanded={terrainExpanded}
+                        onToggle={() => setTerrainExpanded((v) => !v)}
                     />
                 )}
 

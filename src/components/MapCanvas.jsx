@@ -18,6 +18,7 @@ import { simulateDiscFlightAsync, loadCourseCollisionData, clearCourseCollisionD
 import { buildTerrainProfile } from '../physics/terrainProfile';
 import { courseToGeoJSON } from '../data/courses';
 import { applyOffsetToGeoJSON, applyOffsetToTrees, applyOffsetToPointCloud, applyOffsetToVoxelHeader } from '../utils/calibrationOffset';
+import { applyTerrainLayers, DEFAULT_TERRAIN } from '../map/terrainLayers';
 import TreeLayer from '../map/TreeLayer';
 import PointCloudLayer from '../map/PointCloudLayer';
 import { decodePointCloud } from '../map/pointCloudFormat';
@@ -28,7 +29,7 @@ const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN;
 /** Path to LiDAR GeoJSON (place processed file at public/lidar/overlay.geojson) */
 const LIDAR_GEOJSON_URL = '/lidar/overlay.geojson';
 
-const MapCanvas = forwardRef(({ onMeasure, onFlightComplete, onMove, selectedDisc, throwSettings, wind, mode, activeCourse, activeHole, lidarEnabled, trueViewEnabled, calibrationOffset, editState, editTool, editDispatch }, ref) => {
+const MapCanvas = forwardRef(({ onMeasure, onFlightComplete, onMove, selectedDisc, throwSettings, wind, mode, activeCourse, activeHole, lidarEnabled, trueViewEnabled, calibrationOffset, editState, editTool, editDispatch, terrain }, ref) => {
     const containerRef = useRef(null);
     const mapRef = useRef(null);
     const markersRef = useRef([]);
@@ -45,6 +46,11 @@ const MapCanvas = forwardRef(({ onMeasure, onFlightComplete, onMove, selectedDis
     const pointCloudLayerRef = useRef(null);
     const pointCloudLayerCourseIdRef = useRef(null);
     const collisionCourseIdRef = useRef(null);
+
+    // Mirrored into a ref so the map's own `load` handler — which closes
+    // over mount-time values — can read the CURRENT terrain settings.
+    const terrainRef = useRef(terrain ?? DEFAULT_TERRAIN);
+    terrainRef.current = terrain ?? DEFAULT_TERRAIN;
 
     // ─── EXPOSE METHODS ─────────────────────────────────────────
     useImperativeHandle(ref, () => ({
@@ -177,22 +183,13 @@ const MapCanvas = forwardRef(({ onMeasure, onFlightComplete, onMove, selectedDis
             styleLoaded = true;
             mapRef.current = map;
             setMapLoaded(true);
-            // Terrain after first frame so the loading overlay clears without waiting on DEM setup
+            // Terrain after first frame so the loading overlay clears
+            // without waiting on DEM setup. `terrainRef` rather than the
+            // `terrain` prop: this callback closes over the value from
+            // mount, and the settings effect below may already have run.
             queueMicrotask(() => {
                 if (instanceRemoved || !mapRef.current) return;
-                try {
-                    if (!map.getSource('mapbox-dem')) {
-                        map.addSource('mapbox-dem', {
-                            type: 'raster-dem',
-                            url: 'mapbox://mapbox.mapbox-terrain-dem-v1',
-                            tileSize: 512,
-                            maxzoom: 14,
-                        });
-                    }
-                    map.setTerrain({ source: 'mapbox-dem', exaggeration: 2.0 });
-                } catch (e) {
-                    console.warn('Terrain:', e.message);
-                }
+                applyTerrainLayers(map, terrainRef.current);
             });
         });
 
@@ -215,6 +212,16 @@ const MapCanvas = forwardRef(({ onMeasure, onFlightComplete, onMove, selectedDis
             mapRef.current = null;
         };
     }, []);
+
+    // ─── TERRAIN LEGIBILITY LAYERS ──────────────────────────────
+    // Hillshade / contours / mesh exaggeration. Gated on `mapLoaded` so
+    // the first application can't race the style; after that every
+    // settings change re-applies, and applyTerrainLayers is idempotent so
+    // re-running it is just a visibility flip.
+    useEffect(() => {
+        if (!mapLoaded || !mapRef.current) return;
+        applyTerrainLayers(mapRef.current, terrain ?? DEFAULT_TERRAIN);
+    }, [mapLoaded, terrain?.hillshade, terrain?.relief, terrain?.contours, terrain?.exaggeration]);
 
     // ─── CLICK HANDLERS ─────────────────────────────────────────
 
@@ -291,7 +298,9 @@ const MapCanvas = forwardRef(({ onMeasure, onFlightComplete, onMove, selectedDis
     // ─── MEASURE MODE ──────────────────────────────────────────
 
     function handleMeasureClick(lngLat, map) {
-        const elevation = map.queryTerrainElevation(lngLat) || 0;
+        // exaggerated:false — see terrainProfile.js. A measured elevation
+        // change must be the real one, not the display's amplified one.
+        const elevation = map.queryTerrainElevation(lngLat, { exaggerated: false }) || 0;
         const point = { lng: lngLat.lng, lat: lngLat.lat, elevation };
 
         if (!teePointRef.current) {
@@ -339,7 +348,10 @@ const MapCanvas = forwardRef(({ onMeasure, onFlightComplete, onMove, selectedDis
         const myRequestId = ++throwRequestIdRef.current;
 
         try {
-            const elevation = map.queryTerrainElevation?.(lngLat) ?? 0;
+            // exaggerated:false — the tee elevation is the baseline every
+            // terrain sample is differenced against (terrainProfile.js), so
+            // it must be on the same true-metres scale as they are.
+            const elevation = map.queryTerrainElevation?.(lngLat, { exaggerated: false }) ?? 0;
             const tee = { lng: lngLat.lng, lat: lngLat.lat, elevation };
 
             clearMarkers();

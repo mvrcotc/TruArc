@@ -37,7 +37,16 @@ export function buildTerrainProfile(map, tee, bearingDeg, localToLngLat, { maxRa
         const { lng, lat } = localToLngLat(0, z, tee, bearingDeg);
         let elev;
         try {
-            elev = map.queryTerrainElevation?.([lng, lat]);
+            // `exaggerated: false` is NOT optional. queryTerrainElevation
+            // defaults to exaggerated:TRUE — it returns the elevation with
+            // the style's terrain exaggeration already multiplied in. The
+            // map runs exaggeration for legibility (hills on a golf course
+            // are subtle), so every sample here came back scaled by that
+            // factor, and since the tee elevation was scaled too the
+            // DIFFERENCE — the slope the physics actually integrates — was
+            // scaled with it. A purely cosmetic display setting was
+            // changing simulated carry and landing.
+            elev = map.queryTerrainElevation?.([lng, lat], { exaggerated: false });
         } catch {
             elev = null;
         }
