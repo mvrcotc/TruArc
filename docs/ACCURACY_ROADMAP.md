@@ -601,11 +601,39 @@ literal Monte Carlo sampling in this pass.
 **Model:** **Sonnet 5** for all of it, with a one-shot **Opus 5** review pass on the
 ray/capsule/voxel-traversal math (Amanatides-Woo grid traversal is easy to get subtly
 wrong at cell boundaries).
-**Sonnet 5's implementation is done; the Opus 5 review pass on
-`traverseSegmentVoxels`/`raySegmentVsCylinder`-equivalent capsule math is still
-outstanding** — flagged here rather than skipped, per the roadmap's own model
-assignment.
-Estimated size: 1–2 sessions Sonnet.
+**✅ BOTH DONE.** The Opus 5 review pass found three real defects, all fixed and
+regression-tested. It was right to insist on this step — the traversal bug was
+invisible to a suite that was passing 46/46:
+
+1. **Tie-breaking was backwards, and the code confidently documented the wrong
+   rationale.** At an exact corner tie the implementation advanced ALL tied axes at
+   once, which gives the geometrically *tight* traversal — visiting only the two
+   diagonal cells. The comment claimed this *prevented* corner leak; it *caused* one.
+   Two obstacles occupying the off-diagonal pair (touching only at that corner) were
+   passed straight through with no hit reported, while rays perturbed ±1e-7 to either
+   side both reported one — a false-negative discontinuity exactly on the tie, which
+   is what this section's own "randomized trajectories never pass through occupied
+   voxels" criterion forbids. Now advances one axis (standard Amanatides-Woo), the
+   conservative superset. The prior test asserted the buggy behaviour under the name
+   "corner-leak regression"; it now asserts the real property (the exact-corner ray
+   must not touch fewer obstacles than its own perturbations).
+2. **Clearance measured horizontal distance only.** Samples outside a crown's height
+   band were skipped entirely, so a line threading 0.5 m directly over a canopy —
+   the single most decision-relevant shot in the app — reported `clearanceM: null`
+   ("no data") and zero near-misses. Replaced with a true 3-D signed distance to a
+   capped cylinder (`capsuleSurfaceDistance`); that line now reads 0.5 m. Signed, so
+   a clean flight can legitimately read negative (inside the bounding crown volume,
+   but through a real voxel gap) — surfaced in the UI as "N ft into canopy — through
+   a gap" rather than a confusing negative number.
+3. **Clearance was O(samples × trees) with no spatial index.** Measured 4 ms at 500
+   trees, 29 ms at 5 000, **104 ms at 20 000** — against a 6-DOF sim that costs ~6–7 ms,
+   re-run on every settings-slider frame. A uniform bin grid over capsule centres
+   (bins sized search-radius + widest crown, so a 3×3 scan can't miss a fat tree in a
+   neighbouring bin) brings 20 000 trees to **31 ms**, with a test cross-checking the
+   indexed result against an exhaustive scan. Clearance beyond 30 m now reports
+   `null` rather than a large number — honest, and what makes the index sound.
+
+Estimated size: 1–2 sessions Sonnet. **Actual: 1 Sonnet session + 1 Opus review pass.**
 
 ---
 

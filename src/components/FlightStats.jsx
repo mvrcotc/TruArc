@@ -302,6 +302,14 @@ function CollisionReadout({ collision, origin }) {
 
     if (collision.clearanceFt == null) return null;
 
+    // Clearance is a SIGNED distance to the nearest crown surface, so a
+    // clean flight can still read negative: the line passed inside a
+    // tree's bounding crown volume while the voxel grid — which carries
+    // the real canopy gaps — recorded no contact. That's not a
+    // contradiction, it's the single most valuable thing this feature
+    // can tell a player, so it gets said plainly rather than shown as a
+    // confusing negative number.
+    const threadedAGap = collision.clearanceFt < 0;
     const tight = collision.clearanceFt < 5;
     const close = collision.clearanceFt < 15;
     const color = tight ? '#ff3366' : close ? '#ff6b35' : '#00ff88';
@@ -310,8 +318,14 @@ function CollisionReadout({ collision, origin }) {
         <div className="mt-3 pt-2 border-t border-truarc-border/30 flex items-center justify-between">
             <span className="cad-label">Clearance</span>
             <span className="font-mono font-bold text-xs" style={{ color }}>
-                {collision.clearanceFt.toFixed(1)} ft
-                {collision.gapValidated && <span className="ml-1.5 text-truarc-muted font-normal">— gap validated</span>}
+                {threadedAGap
+                    ? `${Math.abs(collision.clearanceFt).toFixed(1)} ft into canopy`
+                    : `${collision.clearanceFt.toFixed(1)} ft`}
+                {collision.gapValidated && (
+                    <span className="ml-1.5 text-truarc-muted font-normal">
+                        {threadedAGap ? '— through a gap' : '— gap validated'}
+                    </span>
+                )}
             </span>
         </div>
     );

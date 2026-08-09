@@ -41,17 +41,31 @@
  *
  * ── TIE-BREAKING AT CELL BOUNDARIES ──────────────────────────────────
  * When a ray's next crossing is tied across more than one axis (it
- * passes exactly through a grid edge or corner — the common case is an
- * axis-aligned or 45°-diagonal shot), naive Amanatides-Woo that advances
- * only ONE axis per step can "leak" through the shared corner of two
- * diagonally-touching occupied cells without ever visiting either of
- * them (it steps into one of the two diagonally-adjacent EMPTY cells
- * instead, arbitrarily, based on floating-point tie order). This module
- * advances ALL axes tied for the minimum crossing simultaneously, which
- * is the standard fix: the ray jumps straight to the diagonal cell,
- * guaranteed to visit any cell it truly passes through the corner of.
- * See tests/physics/collision.test.mjs's diagonal-corner test, which
- * fails without this fix.
+ * passes exactly through a grid edge or corner — e.g. an exact
+ * 45°-diagonal shot), there are two defensible answers, and for
+ * collision detection they are NOT equally safe:
+ *
+ *   - Advance ALL tied axes at once. The ray jumps straight to the
+ *     diagonal cell, visiting ONLY the cells it passes through with
+ *     positive measure: [(0,0), (1,1)]. Geometrically tight.
+ *   - Advance ONE axis (standard Amanatides-Woo). The traversal also
+ *     visits an off-diagonal cell: [(0,0), (1,0), (1,1)]. A superset.
+ *
+ * This module deliberately takes the SECOND, conservative option. The
+ * tight version has a false-negative hole exactly at the tie: if the
+ * two occupied cells are the off-diagonal pair (1,0) and (0,1) — two
+ * obstacles touching at that corner — a ray through the corner passes
+ * through neither in the tight traversal and reports NO HIT, even
+ * though rays perturbed by ±1e-7 to either side both report one. That
+ * discontinuity is exactly what the roadmap's "randomized trajectories
+ * never pass through voxels marked occupied" criterion rules out, and
+ * over-reporting a measure-zero graze is the right way to be wrong in
+ * a hit detector. Ties are broken x > y > z for determinism.
+ *
+ * (Practical note: in absolute working-CRS metres — x ≈ 261191.44 —
+ * exact ties essentially never arise from real trajectory data. This
+ * choice is about which way the algorithm fails at the boundary, not
+ * about a case that shows up every throw.)
  */
 
 import { isOccupied } from './voxelGridFormat.js';
@@ -195,20 +209,24 @@ export function traverseSegmentVoxels(header, p0, p1) {
         const minT = Math.min(sx.tMax, sy.tMax, sz.tMax);
         if (minT > tExit + TIE_EPS) break;
 
-        // Advance every axis tied for the minimum crossing at once —
-        // see the module header comment on corner-leak prevention.
+        // Advance exactly ONE axis — the conservative choice at ties.
+        // See the module header comment: stepping every tied axis at
+        // once would skip the off-diagonal cell and open a
+        // false-negative hole precisely at the corner. A tied axis that
+        // isn't taken this iteration keeps its (now equal-to-minT)
+        // tMax and is taken on the very next one, so the traversal
+        // still reaches the diagonal cell — it just visits the corner
+        // neighbour on the way.
         let advanced = false;
         if (sx.step !== 0 && sx.tMax <= minT + TIE_EPS) {
             ix += sx.step;
             sx.tMax += sx.tDelta;
             advanced = true;
-        }
-        if (sy.step !== 0 && sy.tMax <= minT + TIE_EPS) {
+        } else if (sy.step !== 0 && sy.tMax <= minT + TIE_EPS) {
             iy += sy.step;
             sy.tMax += sy.tDelta;
             advanced = true;
-        }
-        if (sz.step !== 0 && sz.tMax <= minT + TIE_EPS) {
+        } else if (sz.step !== 0 && sz.tMax <= minT + TIE_EPS) {
             iz += sz.step;
             sz.tMax += sz.tDelta;
             advanced = true;
@@ -327,28 +345,99 @@ export function truncateTrajectoryAtHit(points, firstContact, options = {}) {
 }
 
 /**
+ * Signed distance from a point to a capsule's SURFACE, in metres.
+ * Negative inside. This is a true 3-D distance to a capped cylinder,
+ * not the horizontal-only reading an earlier version used: a line
+ * skimming 0.5 m directly over a canopy is 0.5 m of clearance, and
+ * treating it as "outside the crown's height band, therefore no
+ * clearance data" reported `null` for the single most decision-relevant
+ * line in the app (thread it over the tree, or under?). Standard
+ * point-to-capped-cylinder form: combine the radial and vertical
+ * overshoots outside, take the smallest face margin inside.
+ */
+export function capsuleSurfaceDistance(point, cap) {
+    const radial = Math.hypot(point.x - cap.x, point.y - cap.y) - cap.radius;
+    const vertical = Math.max(cap.zMin - point.z, point.z - cap.zMax);
+    if (radial <= 0 && vertical <= 0) return Math.max(radial, vertical); // inside: nearest face
+    return Math.hypot(Math.max(0, radial), Math.max(0, vertical));
+}
+
+/**
  * Nearest tree capsule that plausibly explains a contact point (voxel
- * hit) — the capsule with the greatest penetration (radius minus
- * horizontal distance to axis) among candidates whose z-range covers the
- * point within `toleranceM`. Returns null, honestly, when no tree
- * explains the hit within tolerance — Section 2's canopy segmentation
- * does not have 100% recall, so an un-attributed voxel hit is a real,
- * expected outcome, not a bug to paper over.
+ * hit) — the capsule whose surface the point is deepest inside (or
+ * least far outside) within `toleranceM`. Returns null, honestly, when
+ * no tree explains the hit within tolerance — Section 2's canopy
+ * segmentation does not have 100% recall, so an un-attributed voxel hit
+ * is a real, expected outcome, not a bug to paper over.
  */
 export function attributeTreeAtHit(point, capsules, toleranceM = 1.5) {
     let best = null;
-    let bestPenetration = -Infinity;
+    let bestDistance = Infinity;
     for (const cap of capsules) {
-        if (point.z < cap.zMin - toleranceM || point.z > cap.zMax + toleranceM) continue;
-        const horizDist = Math.hypot(point.x - cap.x, point.y - cap.y);
-        const penetration = cap.radius - horizDist;
-        if (penetration < -toleranceM) continue;
-        if (penetration > bestPenetration) {
-            bestPenetration = penetration;
+        const d = capsuleSurfaceDistance(point, cap);
+        if (d > toleranceM) continue;
+        if (d < bestDistance) {
+            bestDistance = d;
             best = cap;
         }
     }
     return best;
+}
+
+// ─── SPATIAL INDEX ───────────────────────────────────────────────────
+//
+// The clearance pass is inherently (trajectory samples × trees), and
+// both factors are large on a real course: ~200 resampled points against
+// a wooded footprint's tree inventory. Measured on this machine before
+// indexing: 4 ms at 500 trees, 29 ms at 5 000, 104 ms at 20 000 — against
+// a 6-DOF simulation that itself costs ~6-7 ms. Since MapCanvas
+// re-simulates on every settings-slider frame, that turns a smooth drag
+// into a visibly laggy one at real course scale even with the worker
+// absorbing it off the main thread.
+//
+// A uniform bin grid over capsule centres fixes it: bins are
+// CLEARANCE_SEARCH_RADIUS_M wide, so scanning a sample's own bin plus
+// its 8 neighbours covers every capsule within that radius. Trees
+// further away than the search radius are not merely unimportant — they
+// are not reportable at all (clearance is capped, see below), so
+// skipping them changes no answer this module claims to give.
+
+/** Vegetation beyond this reports as "no vegetation nearby" (null), not
+ *  as a large number: a 240 ft clearance reading is noise, not signal,
+ *  and pretending to measure it would cost a full O(trees) scan. */
+const CLEARANCE_SEARCH_RADIUS_M = 30;
+const NEAR_MISS_M = 2;
+
+function buildCapsuleIndex(capsules, searchRadiusM) {
+    // Bins must be wide enough that a 3x3 scan reaches every capsule
+    // whose SURFACE is within searchRadiusM — so the bin size has to
+    // cover the search radius PLUS the widest crown, or a fat tree just
+    // outside the neighbourhood could still have its edge inside it.
+    let maxRadius = 0;
+    for (const cap of capsules) if (cap.radius > maxRadius) maxRadius = cap.radius;
+    const binSize = searchRadiusM + maxRadius;
+
+    const bins = new Map();
+    for (const cap of capsules) {
+        const bx = Math.floor(cap.x / binSize);
+        const by = Math.floor(cap.y / binSize);
+        const key = `${bx},${by}`;
+        const bucket = bins.get(key);
+        if (bucket) bucket.push(cap);
+        else bins.set(key, [cap]);
+    }
+    return { bins, binSize };
+}
+
+function* capsulesNear(index, x, y) {
+    const bx = Math.floor(x / index.binSize);
+    const by = Math.floor(y / index.binSize);
+    for (let ox = -1; ox <= 1; ox++) {
+        for (let oy = -1; oy <= 1; oy++) {
+            const bucket = index.bins.get(`${bx + ox},${by + oy}`);
+            if (bucket) yield* bucket;
+        }
+    }
 }
 
 // ─── TOP-LEVEL ORCHESTRATOR ────────────────────────────────────────────
@@ -371,6 +460,12 @@ function lerp(a, b, t) {
  *   gapValidated: boolean,
  *   nearMisses: {treeIndex: number, distanceM: number, distanceFt: number}[],
  * }}
+ *
+ * `clearanceM` is the minimum true 3-D distance from the flight line to
+ * any crown SURFACE (so a line threading 0.5 m over a canopy reads
+ * 0.5 m, not "no data"), or null when no vegetation comes within
+ * CLEARANCE_SEARCH_RADIUS_M. It can be negative on a hit — the disc was
+ * inside a crown volume.
  */
 export function analyzeCollision(header, decoded, trees, wgs84Points) {
     const collisionPoints = wgs84Points.map((p) => toCollisionSpace(header, p));
@@ -379,14 +474,15 @@ export function analyzeCollision(header, decoded, trees, wgs84Points) {
     const voxelHit = findFirstVoxelHit(header, decoded, collisionPoints);
 
     const sampled = resamplePolyline(collisionPoints, 0.5);
+    const index = buildCapsuleIndex(capsules, CLEARANCE_SEARCH_RADIUS_M);
     let clearanceM = Infinity;
     const nearMissByTree = new Map();
     for (const p of sampled) {
-        for (const cap of capsules) {
-            if (p.z < cap.zMin || p.z > cap.zMax) continue;
-            const d = Math.hypot(p.x - cap.x, p.y - cap.y) - cap.radius;
+        for (const cap of capsulesNear(index, p.x, p.y)) {
+            const d = capsuleSurfaceDistance(p, cap);
+            if (d > CLEARANCE_SEARCH_RADIUS_M) continue;
             if (d < clearanceM) clearanceM = d;
-            if (d < 2) {
+            if (d < NEAR_MISS_M) {
                 const prev = nearMissByTree.get(cap.index);
                 if (prev === undefined || d < prev) nearMissByTree.set(cap.index, d);
             }

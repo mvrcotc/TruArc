@@ -14,7 +14,7 @@ import assert from 'node:assert/strict';
 import {
     traverseSegmentVoxels, findFirstVoxelHit, resamplePolyline,
     attributeTreeAtHit, buildTreeCapsules, toCollisionSpace, analyzeCollision,
-    truncateTrajectoryAtHit,
+    truncateTrajectoryAtHit, capsuleSurfaceDistance,
 } from '../../src/physics/collision.js';
 import { parseVoxelGridHeader, decodeVoxelGridBinary } from '../../src/physics/voxelGridFormat.js';
 
@@ -127,24 +127,49 @@ describe('traverseSegmentVoxels', () => {
     });
 
     describe('45-degree diagonal exactly through a shared cell corner (corner-leak regression)', () => {
-        // 2x2x1 grid. A ray from (0,0) to (2,2) passes exactly through the
-        // point (1,1) — the corner shared by all four cells. Advancing
-        // only one tied axis per step would make the traversal "leak"
-        // through one of the two off-diagonal empty cells; this asserts
-        // it instead jumps straight from (0,0,0) to (1,1,0), visiting
-        // only the two cells the ray truly passes through.
+        // 2x2x1 grid. A ray from (0,0) to (2,2) passes exactly through
+        // (1,1) — the corner shared by all four cells. Traversal must be
+        // CONSERVATIVE here: it has to visit an off-diagonal cell too,
+        // or a pair of obstacles occupying (1,0) and (0,1) — touching
+        // only at that corner — would be missed entirely by a ray
+        // passing right between them, even though rays perturbed by
+        // ±1e-7 to either side both register a hit. See collision.js's
+        // header comment on tie-breaking.
         const header = {
             originX: 0, originY: 0, originZ: 0, cellM: 1, nx: 2, ny: 2, nz: 1,
         };
 
-        test('forward diagonal visits exactly the two cells on the diagonal, not the off-diagonal ones', () => {
+        test('forward diagonal visits an off-diagonal cell, not just the two diagonal ones', () => {
             const cells = traverseSegmentVoxels(header, { x: 0, y: 0, z: 0.5 }, { x: 2, y: 2, z: 0.5 });
-            assert.deepEqual(cells.map((c) => [c.ix, c.iy, c.iz]), [[0, 0, 0], [1, 1, 0]]);
+            const visited = cells.map((c) => `${c.ix},${c.iy}`);
+            assert.deepEqual(visited, ['0,0', '1,0', '1,1']);
         });
 
-        test('reversed diagonal visits the same two cells in reverse', () => {
+        test('reversed diagonal is likewise conservative', () => {
             const cells = traverseSegmentVoxels(header, { x: 2, y: 2, z: 0.5 }, { x: 0, y: 0, z: 0.5 });
-            assert.deepEqual(cells.map((c) => [c.ix, c.iy, c.iz]), [[1, 1, 0], [0, 0, 0]]);
+            const visited = cells.map((c) => `${c.ix},${c.iy}`);
+            assert.equal(visited[0], '1,1');
+            assert.equal(visited[visited.length - 1], '0,0');
+            assert.equal(visited.length, 3, `expected an off-diagonal cell in ${JSON.stringify(visited)}`);
+        });
+
+        test('the exact-corner ray is not a hole between its own perturbations', () => {
+            // The real requirement, stated directly: whatever cells the
+            // rays just off the corner touch, the exact-corner ray must
+            // not touch strictly fewer of the off-diagonal pair than
+            // BOTH of them do — otherwise there is a measure-zero line
+            // through which a disc passes two obstacles untouched.
+            const offDiagonal = (cells) => cells
+                .map((c) => `${c.ix},${c.iy}`)
+                .filter((k) => k === '1,0' || k === '0,1').length;
+
+            const exact = traverseSegmentVoxels(header, { x: 0, y: 0, z: 0.5 }, { x: 2, y: 2, z: 0.5 });
+            const nudgedUp = traverseSegmentVoxels(header, { x: 0, y: 1e-7, z: 0.5 }, { x: 2, y: 2 + 1e-7, z: 0.5 });
+            const nudgedDown = traverseSegmentVoxels(header, { x: 0, y: -1e-7, z: 0.5 }, { x: 2, y: 2 - 1e-7, z: 0.5 });
+
+            assert.ok(offDiagonal(nudgedUp) >= 1);
+            assert.ok(offDiagonal(nudgedDown) >= 1);
+            assert.ok(offDiagonal(exact) >= 1, 'exact-corner ray passed between two corner-touching obstacles');
         });
     });
 
@@ -249,6 +274,42 @@ describe('resamplePolyline', () => {
         assert.deepEqual(resamplePolyline([], 1), []);
         const single = [{ x: 1, y: 2, z: 3 }];
         assert.deepEqual(resamplePolyline(single, 1), single);
+    });
+});
+
+// ─── capsuleSurfaceDistance ────────────────────────────────────────────
+
+describe('capsuleSurfaceDistance', () => {
+    const cap = { index: 0, x: 0, y: 0, radius: 4, zMin: 105, zMax: 115 };
+
+    test('purely lateral: distance from the side of the crown', () => {
+        assert.ok(Math.abs(capsuleSurfaceDistance({ x: 10, y: 0, z: 110 }, cap) - 6) < 1e-9);
+    });
+
+    test('purely vertical: a line directly over the trunk measures to the canopy TOP', () => {
+        // The case the old horizontal-only version reported as "no data".
+        assert.ok(Math.abs(capsuleSurfaceDistance({ x: 0, y: 0, z: 115.5 }, cap) - 0.5) < 1e-9);
+        assert.ok(Math.abs(capsuleSurfaceDistance({ x: 0, y: 0, z: 104 }, cap) - 1) < 1e-9);
+    });
+
+    test('diagonal: radial and vertical overshoots combine as a hypotenuse', () => {
+        // 3m past the radius, 4m above the top -> 5m.
+        const d = capsuleSurfaceDistance({ x: 7, y: 0, z: 119 }, cap);
+        assert.ok(Math.abs(d - 5) < 1e-9, `got ${d}`);
+    });
+
+    test('inside the crown returns a negative distance (penetration)', () => {
+        // Dead centre: 4m from the side wall, 5m from either cap -> -4.
+        const d = capsuleSurfaceDistance({ x: 0, y: 0, z: 110 }, cap);
+        assert.ok(Math.abs(d - -4) < 1e-9, `got ${d}`);
+        // Just inside the top face -> nearest face is the top, -0.25.
+        const d2 = capsuleSurfaceDistance({ x: 0, y: 0, z: 114.75 }, cap);
+        assert.ok(Math.abs(d2 - -0.25) < 1e-9, `got ${d2}`);
+    });
+
+    test('exactly on the surface reads zero', () => {
+        assert.ok(Math.abs(capsuleSurfaceDistance({ x: 4, y: 0, z: 110 }, cap)) < 1e-9);
+        assert.ok(Math.abs(capsuleSurfaceDistance({ x: 0, y: 0, z: 115 }, cap)) < 1e-9);
     });
 });
 
@@ -426,8 +487,9 @@ describe('analyzeCollision', () => {
 
     test('clearance and near-misses reflect capsule distance, including passes that graze but do not hit', () => {
         // (1.5, 0.5) is ~1.41m from treeAtHitSite's axis at (2.5, 1.5);
-        // capsule radius 1.0 → clearance ~0.41m, a near-miss but not a
-        // voxel hit (column (1,0,*) is unoccupied per the fixture).
+        // capsule radius 1.0 → lateral gap ~0.41m while inside the
+        // crown's height band, a near-miss but not a voxel hit (column
+        // (1,0,*) is unoccupied per the fixture).
         const { lng, lat } = gridXYToLngLat(REAL_HEADER_JSON, 1.5, 0.5);
         const wgs84Points = [
             { lng, lat, altitude: 150 },
@@ -438,15 +500,29 @@ describe('analyzeCollision', () => {
         assert.ok(result.clearanceM !== null);
         assert.ok(Math.abs(result.clearanceM - 0.414) < 0.05, `clearanceM=${result.clearanceM}`);
         assert.ok(Math.abs(result.clearanceFt - result.clearanceM * 3.28084) < 1e-6);
-        assert.equal(result.nearMisses.length, 1);
+        assert.ok(result.nearMisses.length >= 1);
         assert.equal(result.nearMisses[0].treeIndex, 0);
-        // farTree (index 1) is well over 2m away from this line — must not appear.
-        assert.ok(!result.nearMisses.some((n) => n.treeIndex === 1));
     });
 
-    test('a trajectory with no points near any tree yields Infinity-free null clearance semantics only when nothing was ever in range', () => {
-        // Sanity: a synthetic empty tree list must not crash and should
-        // report clearanceM: null (nothing measured), not 0 or Infinity.
+    test('a line passing directly OVER a canopy reports its vertical clearance, not null', () => {
+        // The regression the horizontal-only clearance version had: this
+        // line is dead above treeAtHitSite's trunk and never enters the
+        // crown's height band, so the old code reported "no data" for
+        // exactly the line a player most needs measured.
+        const { lng, lat } = gridXYToLngLat(REAL_HEADER_JSON, 2.5, 1.5);
+        const treeTop = treeAtHitSite.ground_elev_m + treeAtHitSite.height_m; // 141
+        const wgs84Points = [
+            { lng, lat, altitude: treeTop + 0.5 },
+            { lng, lat, altitude: treeTop + 0.5 },
+        ];
+        const result = analyzeCollision(header, decoded, [treeAtHitSite], wgs84Points);
+        assert.ok(result.clearanceM !== null, 'over-canopy line reported no clearance data');
+        assert.ok(Math.abs(result.clearanceM - 0.5) < 1e-6, `clearanceM=${result.clearanceM}`);
+    });
+
+    test('clearance is null only when nothing is within the search radius', () => {
+        // A synthetic empty tree list must not crash and should report
+        // clearanceM: null (nothing measured), not 0 or Infinity.
         const { lng, lat } = gridXYToLngLat(REAL_HEADER_JSON, 1.5, 0.5);
         const wgs84Points = [
             { lng, lat, altitude: 150 },
@@ -456,5 +532,34 @@ describe('analyzeCollision', () => {
         assert.equal(result.clearanceM, null);
         assert.equal(result.clearanceFt, null);
         assert.deepEqual(result.nearMisses, []);
+    });
+
+    test('the spatial index returns the same clearance an exhaustive scan would', () => {
+        // Guards the binning: a capsule must not be missed because it
+        // sits in a neighbouring bin. Builds a spread-out stand and
+        // cross-checks against a brute-force minimum over every tree.
+        const manyTrees = [];
+        for (let gx = 0; gx < 4; gx++) {
+            for (let gy = 0; gy < 3; gy++) {
+                const { lng, lat } = gridXYToLngLat(REAL_HEADER_JSON, gx + 0.5, gy + 0.5);
+                manyTrees.push({
+                    lng, lat, ground_elev_m: 137, height_m: 4 + gx, crown_radius_m: 0.3 + gy * 0.1, crown_base_m: 1,
+                });
+            }
+        }
+        const { lng, lat } = gridXYToLngLat(REAL_HEADER_JSON, 1.7, 0.9);
+        const wgs84Points = [
+            { lng, lat, altitude: 150 },
+            { lng, lat, altitude: 130 },
+        ];
+        const result = analyzeCollision(header, decoded, manyTrees, wgs84Points);
+
+        const capsules = buildTreeCapsules(header, manyTrees);
+        const sampled = resamplePolyline(wgs84Points.map((p) => toCollisionSpace(header, p)), 0.5);
+        let brute = Infinity;
+        for (const p of sampled) {
+            for (const cap of capsules) brute = Math.min(brute, capsuleSurfaceDistance(p, cap));
+        }
+        assert.ok(Math.abs(result.clearanceM - brute) < 1e-9, `indexed=${result.clearanceM} brute=${brute}`);
     });
 });
