@@ -90,6 +90,44 @@ export function applyOffsetToGeoJSON(geojson, offset) {
 }
 
 /**
+ * Apply a calibration offset to Section 2 TreeRecord-shaped objects
+ * (lng, lat, ground_elev_m — not GeoJSON), used by TreeLayer.
+ */
+export function applyOffsetToTrees(trees, offset) {
+    if (!trees) return trees;
+    return trees.map((t) => {
+        const shifted = applyOffset({ lng: t.lng, lat: t.lat, elevation: t.ground_elev_m }, offset);
+        return { ...t, lng: shifted.lng, lat: shifted.lat, ground_elev_m: shifted.elevation };
+    });
+}
+
+/**
+ * Apply a calibration offset to a decoded point cloud (the shape
+ * src/map/pointCloudFormat.js's `decodePointCloud` returns —
+ * {count, lng, lat, altitudeM, classification} typed arrays), used by
+ * PointCloudLayer. Offsetting after decode rather than threading the
+ * offset through the binary decoder keeps that decoder a pure format
+ * translation with nothing else to verify.
+ */
+export function applyOffsetToPointCloud(decoded, offset) {
+    if (!decoded) return decoded;
+    const dLng = offset?.dLng || 0;
+    const dLat = offset?.dLat || 0;
+    const dElev = offset?.dElev || 0;
+    if (dLng === 0 && dLat === 0 && dElev === 0) return decoded;
+
+    const lng = decoded.lng.slice();
+    const lat = decoded.lat.slice();
+    const altitudeM = decoded.altitudeM.slice();
+    for (let i = 0; i < decoded.count; i++) {
+        lng[i] += dLng;
+        lat[i] += dLat;
+        altitudeM[i] += dElev;
+    }
+    return { ...decoded, lng, lat, altitudeM };
+}
+
+/**
  * Nudge offset by a step size (meters → degrees conversion)
  * @param {Object} currentOffset - Current offset
  * @param {'lng'|'lat'|'elev'} axis

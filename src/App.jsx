@@ -44,6 +44,7 @@ export default function App() {
 
     // LiDAR overlay
     const [lidarEnabled, setLidarEnabled] = useState(false);
+    const [trueViewEnabled, setTrueViewEnabled] = useState(false);
     const [calibrationOffset, setCalibrationOffset] = useState({ dLng: 0, dLat: 0, dElev: 0 });
 
     // ─── KEYBOARD SHORTCUTS ─────────────────────────────────────
@@ -172,6 +173,7 @@ export default function App() {
                 activeCourse={activeCourse}
                 activeHole={activeHole}
                 lidarEnabled={lidarEnabled}
+                trueViewEnabled={trueViewEnabled}
                 calibrationOffset={calibrationOffset}
             />
 
@@ -208,6 +210,8 @@ export default function App() {
                         onOffsetChange={handleCalibrationOffset}
                         lidarEnabled={lidarEnabled}
                         onLidarToggle={setLidarEnabled}
+                        trueViewEnabled={trueViewEnabled}
+                        onTrueViewToggle={setTrueViewEnabled}
                     />
                 </div>
                 <div style={{ display: mode === 'course' ? 'block' : 'none' }}>

@@ -59,13 +59,15 @@ class TestUploadCourseOutputs(unittest.TestCase):
         (d / "maple-hill-gold_voxels.bin").write_bytes(b"TVOX")
         (d / "maple-hill-gold_voxels_header.json").write_text("{}")
         (d / "maple-hill-gold_dtm.json").write_text("{}")
+        (d / "maple-hill-gold_points.bin").write_bytes(b"TPTS")
+        (d / "maple-hill-gold_points_header.json").write_text("{}")
 
     def test_all_succeed(self):
         with tempfile.TemporaryDirectory() as d:
             d = Path(d)
             self._make_outputs(d)
             uploaded = upload_course_outputs("maple-hill-gold", d, FakeBucket())
-            self.assertEqual(len(uploaded), 4)
+            self.assertEqual(len(uploaded), 6)
 
     def test_partial_failure_does_not_abort_remaining_uploads(self):
         with tempfile.TemporaryDirectory() as d:
@@ -73,7 +75,7 @@ class TestUploadCourseOutputs(unittest.TestCase):
             self._make_outputs(d)
             fail_path = "lidar/maple-hill-gold/maple-hill-gold_voxels.bin"
             uploaded = upload_course_outputs("maple-hill-gold", d, FakeBucket(fail_on=fail_path))
-            self.assertEqual(len(uploaded), 3)
+            self.assertEqual(len(uploaded), 5)
             self.assertNotIn(fail_path, uploaded)
 
     def test_content_type_set_per_file(self):

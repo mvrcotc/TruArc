@@ -33,6 +33,8 @@ OUTPUT_FILES = {
     "voxels_bin": ("{course_id}_voxels.bin", "application/octet-stream"),
     "voxels_header": ("{course_id}_voxels_header.json", "application/json"),
     "dtm": ("{course_id}_dtm.json", "application/json"),
+    "points_bin": ("{course_id}_points.bin", "application/octet-stream"),
+    "points_header": ("{course_id}_points_header.json", "application/json"),
 }
 
 

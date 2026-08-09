@@ -25,7 +25,7 @@ from pathlib import Path
 
 import numpy as np
 
-from . import acquire, preprocess, schema, segmentation, storage, terrain, voxelgrid
+from . import acquire, pointcloud_export, preprocess, schema, segmentation, storage, terrain, voxelgrid
 from .geometry import resolve_course_bbox
 
 log = logging.getLogger("truarc.lidar.pipeline")
@@ -100,7 +100,7 @@ def run_course(course_id: str, skip_trees: bool = False, run_smrf: bool | None =
     ground_mask = points["Classification"] == preprocess.CLASS_GROUND
     veg_mask = np.isin(points["Classification"], preprocess.CLASS_VEGETATION)
 
-    log.info("[4/6] Building voxel occupancy grid...")
+    log.info("[4/7] Building voxel occupancy grid...")
     outputs = {}
     if veg_mask.sum() > 0:
         v_header, v_occ = voxelgrid.build_voxel_grid(
@@ -114,7 +114,7 @@ def run_course(course_id: str, skip_trees: bool = False, run_smrf: bool | None =
     else:
         log.warning("       no vegetation-classified points — skipping voxel grid")
 
-    log.info("[5/6] Building DTM...")
+    log.info("[5/7] Building DTM...")
     if ground_mask.sum() > 0:
         d_header, d_grid = terrain.build_dtm_grid(
             points["X"][ground_mask], points["Y"][ground_mask], points["Z"][ground_mask], working_crs,
@@ -127,8 +127,25 @@ def run_course(course_id: str, skip_trees: bool = False, run_smrf: bool | None =
     else:
         log.warning("       no ground-classified points — skipping DTM")
 
+    log.info("[6/7] Exporting decimated point cloud (Section 3 'true view')...")
+    idx = pointcloud_export.decimate_prioritizing_vegetation(points["Classification"])
+    if len(idx) > 0:
+        import pyproj
+        to_wgs84 = pyproj.Transformer.from_crs(working_crs, "EPSG:4326", always_xy=True)
+        lng, lat = to_wgs84.transform(points["X"][idx], points["Y"][idx])
+        pts_bin_path = output_dir / f"{course_id}_points.bin"
+        pts_hdr_path = output_dir / f"{course_id}_points_header.json"
+        pointcloud_export.write_point_cloud(
+            np.asarray(lng), np.asarray(lat), points["Z"][idx],
+            points["Classification"][idx], pts_bin_path, pts_hdr_path,
+        )
+        outputs["points"] = str(pts_bin_path)
+        log.info("       %d point(s) (%.0f%% of %d)", len(idx), 100 * len(idx) / len(points), len(points))
+    else:
+        log.warning("       no points to export")
+
     if not skip_trees:
-        log.info("[6/6] Segmenting individual trees...")
+        log.info("[7/7] Segmenting individual trees...")
         trees = segmentation.segment_trees(points, working_crs)
         trees_path = output_dir / f"{course_id}_trees.json"
         schema.write_trees_json(trees, trees_path, course_id,
@@ -136,7 +153,7 @@ def run_course(course_id: str, skip_trees: bool = False, run_smrf: bool | None =
         outputs["trees"] = str(trees_path)
         log.info("       %d tree(s) written", len(trees))
     else:
-        log.info("[6/6] Tree segmentation skipped (--skip-trees)")
+        log.info("[7/7] Tree segmentation skipped (--skip-trees)")
 
     log.info("✓ %s complete. Outputs: %s", course_id, output_dir)
     return outputs

@@ -1,35 +1,47 @@
-name: Map Coordinate Sync
+name: Map & Tree Rendering
 
-# Tests for src/map/ — the Mapbox ↔ Three.js coordinate transform that
-# places the LiDAR tree inventory on the map (Section 3, step 1 of
-# docs/ACCURACY_ROADMAP.md).
+# Tests for src/map/ (Section 3, docs/ACCURACY_ROADMAP.md) — the Mapbox
+# <-> Three.js coordinate sync, crown/trunk/billboard geometry math, the
+# TreeLayer/PointCloudLayer scene-construction pipeline, the point-cloud
+# binary decoder, and the calibration-offset helpers those layers use.
 #
-# Blocking. These are exact-math tests verified against mapbox-gl's own
-# MercatorCoordinate (which runs in Node with no GL context and no access
-# token), not judgment calls — a failure here means a sign, scale, or
-# axis convention has broken, and the symptom on a real map would be
-# trees silently placed in the wrong country, at the wrong altitude, or
-# culled into invisibility.
+# Blocking. These are exact-math and structural tests, not judgment
+# calls — a failure here means a sign, scale, axis, or ground-elevation
+# convention has broken (this suite already caught one real bug of
+# exactly that kind: crowns/billboards rendering pinned to sea-level-
+# relative zero instead of the tree's actual ground altitude). The
+# coordinate primitives are verified against mapbox-gl's own
+# MercatorCoordinate and the point-cloud decoder against real
+# Python-packed bytes — both run in Node with no GL context and no
+# access token.
 #
-# NOT covered: whether the layer actually draws correctly on screen.
-# That needs a Mapbox token and a browser; see the verification note at
-# the top of src/map/TreeLayer.js.
+# NOT covered: whether any of this actually draws correctly on screen.
+# That needs a Mapbox token and a browser — see the verification notes
+# at the top of TreeLayer.js and PointCloudLayer.js.
 on:
   push:
     branches: [main]
     paths:
       - 'src/map/**'
+      - 'src/utils/calibrationOffset.js'
+      - 'src/components/MapCanvas.jsx'
+      - 'src/components/CalibrationPanel.jsx'
       - 'tests/map/**'
+      - 'tests/utils/**'
       - 'package.json'
   pull_request:
     paths:
       - 'src/map/**'
+      - 'src/utils/calibrationOffset.js'
+      - 'src/components/MapCanvas.jsx'
+      - 'src/components/CalibrationPanel.jsx'
       - 'tests/map/**'
+      - 'tests/utils/**'
       - 'package.json'
   workflow_dispatch: {}
 
 jobs:
-  coordinate-sync:
+  map-and-trees:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -40,5 +52,11 @@ jobs:
 
       - run: npm ci
 
-      - name: Run coordinate sync tests
+      - name: Run map/coordinate-sync/tree-geometry tests
         run: npm run test:map
+
+      - name: Run calibration-offset helper tests
+        run: npm run test:utils
+
+      - name: Build (validates TreeLayer/PointCloudLayer bundling, e.g. the BufferGeometryUtils import path)
+        run: npm run build

@@ -318,6 +318,13 @@ untouched; it still serves its original role (the calibration-panel LiDAR overla
    `bounds/README.md`) rather than requiring a boundary file to exist before the
    pipeline can run on any course at all. `--skip-trees` stops cleanly before step 3.
 
+   **Addendum (added during Section 3):** the output set above was missing a raw/
+   decimated point cloud — Section 3 step 4's "true view" toggle had nothing to load.
+   `pointcloud_export.py` closes that gap (`{course}_points.bin` + header, WGS84
+   lng/lat/altitude, capped at 300k points, vegetation-prioritized); wired into
+   `pipeline.py` as step 6/7 and into `storage.py`'s upload set. See §3 step 4 for the
+   full reasoning.
+
 **What this session could and couldn't verify:** no PDAL system library is installable
 in this sandbox, and outbound network is allowlisted to npm/PyPI/Anthropic only — USGS,
 AWS, and Firebase are all unreachable here, the same category of gap as Section 1's
@@ -419,41 +426,84 @@ geometry generated from each tree's own measurements.
      originally shipped — makes every altitude 0.11 % wrong: a constant error no
      horizontal test notices, worth ~20 cm on a 200 m hill, and invisible in a
      screenshot.
-2. **Geometry from inventory:** per tree, lathe the `profile` slices into a crown
-   mesh (conifer → cone-ish stack, deciduous → ellipsoid-ish) + trunk cylinder from
-   `crownBaseM`. Merge into batched `InstancedMesh`-style buffers by form; target
-   < 10 k trees at 60 fps with LOD (billboard imposters beyond ~300 m).
-3. **Anchoring:** trees sit on `groundElevM` from the LiDAR DTM (not Mapbox DEM) so
-   they don't float/sink; respect the calibration offset system already in the app.
-4. **"True view" toggle:** decimated raw point cloud per course (Three.js `Points`,
-   ~300 k points max) for when the player wants to see the literal tree. (COPC
-   streaming is a later upgrade; don't build it yet.)
-5. Remove the GLB `model` layer and the two Kenney assets. Disable Mapbox
-   `show3dTrees` on courses that have LiDAR inventory (avoid double trees).
+2. **Geometry from inventory** — **✅ DONE.** `src/map/treeGeometry.js` is pure crown/
+   trunk/billboard vertex math (lathe profile points, trunk radius heuristic, cross-
+   billboard quads, deterministic color jitter), unit-tested with zero GL dependency —
+   27 tests. `TreeLayer.js` consumes it: each tree gets its own `THREE.LatheGeometry`
+   (crown, from its measured 6-slice `profile`) and `CylinderGeometry` (trunk), which
+   are then **merged** (`BufferGeometryUtils.mergeGeometries`) into one static mesh per
+   tier — real per-tree shape preserved (unlike GPU instancing, which needs one shared
+   template), a small fixed number of draw calls regardless of tree count. Distance LOD
+   (300 m threshold, per the roadmap's suggestion) uses Mapbox's actual camera position
+   via the public `getFreeCameraOptions()` API, not a proxy — recomputed on
+   `moveend`/`zoomend`, not every frame, since rebuilding merged geometry for thousands
+   of trees isn't a per-frame operation. Beyond the threshold, trees render as merged
+   cross-billboards (two perpendicular quads, no per-frame camera-facing update needed)
+   with a runtime-generated radial-gradient foliage texture.
 
-**Handoff for step 2.** `TreeLayer.buildTreeMesh()` is a deliberate placeholder — one
-crude cylinder per tree, present only so the transform can be eyeballed on a real map.
-It should be replaced with: `profile` lathed into a crown (scaled by `crown_radius_m`,
-spanning `crown_base_m` → `height_m`), a trunk below the crown base, batching by `form`,
-and distance LOD. Positioning, lighting, context sharing, the matrix, and disposal are
-finished and can be left alone. Keep `DoubleSide` on every material.
+   **A real bug this testing caught:** the first version's crown and billboard geometry
+   were missing the ground-elevation (`base.y`) translation that the trunk code already
+   had — `crown_base_m`/`height_m` are heights *above ground* (the LiDAR height-above-
+   ground convention Section 2 measures in), not absolute altitude, so every crown would
+   have rendered pinned near sea level while its correctly-positioned trunk poked up
+   with nothing on top. Caught by a test asserting absolute Y position (an earlier test
+   only checked X and missed this class of bug entirely) — fixed, and a dedicated
+   "crown base meets trunk top exactly" regression test added. 13 tests
+   (`tests/map/TreeLayer.test.mjs`), exercising the real scene-construction code with a
+   stubbed `map`/camera — everything except `renderer.render()` itself is testable
+   without a GL context.
+3. **Anchoring** — **✅ DONE**, folded into step 2: trees are placed at
+   `ground_elev_m` (Section 2's DTM-derived ground elevation) via the same verified
+   `lngLatAltToScene`, and calibration offsets apply through the existing
+   `applyOffsetToTrees` helper (new, `src/utils/calibrationOffset.js`) before trees
+   reach the layer.
+4. **"True view" toggle** — **✅ DONE**, with a genuine dependency gap found and closed
+   along the way: Section 2 never actually exported a raw/decimated point cloud (only
+   segmented trees, the voxel grid, and the DTM) — nothing existed for this step to
+   toggle to. Closed with a small addition, `tools/lidar_pipeline/pointcloud_export.py`
+   (13 Python tests): points decimated to the roadmap's 300k cap, vegetation
+   prioritized so the export doesn't cost tree detail, packed as WGS84 lng/lat/altitude
+   (not the pipeline's usual working-CRS metres) specifically so the JS side reuses the
+   already-verified `lngLatAltToScene` instead of needing a second metric→scene
+   transform. `src/map/pointCloudFormat.js` decodes it — **verified against real bytes
+   captured from the actual Python packer**, not against the format spec (a first
+   attempt at this test used a hand-typed "expected" byte string that was never
+   actually generated by running the packer — it happened to decode to plausible-
+   looking values, which is exactly how an unverified fixture passes a sloppy check;
+   caught by cross-referencing against independently-regenerated output, and corrected
+   before commit). `src/map/PointCloudLayer.js` renders it as `THREE.Points`, classification-
+   colored to match the existing calibration-overlay palette. Off by default; toggled
+   from Calibrate mode alongside the pre-existing LiDAR overlay switch.
+5. **✅ DONE.** GLB `model` layer, `show3dTrees` registration, and the two Kenney
+   assets removed entirely from `MapCanvas.jsx` — TreeLayer now owns tree rendering
+   unconditionally, so there's no "disable per-course" branch to maintain and no
+   double-tree case to guard against.
 
-**Verification gap, stated plainly:** no Mapbox token was available, so the layer has
-**never been drawn on a real map**. The math beneath it is verified exactly and the GL
-plumbing follows Mapbox's documented contract, but "the trees appear in the right place
-on screen" is unconfirmed. First run with a token is the real test; the three most
-likely failure points are flagged at their sites in `TreeLayer.js` (winding/culling,
-terrain exaggeration, and globe projection at low zoom — courses are viewed at z16+
-where Mapbox is always in mercator, so globe should not arise in practice).
+**Verification gap, stated plainly:** no Mapbox token was available anywhere in this
+section's development, so **none of this has ever been drawn on a real map**. Every
+piece that can be verified without a browser has been — coordinate math against
+Mapbox's own `MercatorCoordinate`, crown/billboard geometry against hand-worked
+expectations, the point-cloud format against real Python-packed bytes, the full scene-
+construction pipeline (mesh counts, LOD tiering, disposal, ground anchoring) against a
+stubbed map/camera — but "it looks like trees, at a plausible size, holding 60fps" is
+unconfirmed. The LOD threshold (300 m) is the roadmap's suggestion, not something
+measured against an actual frame budget. **First run with a token is the real test for
+this whole section**, and should specifically check: crown/billboard visibility
+(winding), buried-vs-floating trees (terrain exaggeration interaction), LOD switch
+smoothness, and frame rate with a realistic tree count.
 
 **Acceptance:** Maple Hill hole 2 ("tight tunnel through pines") is visually
 recognizable against a photo/satellite view; 60 fps on a mid-range laptop; trees stay
-put under rotate/pitch/zoom and terrain. **Not yet met** — needs step 2's real geometry
-plus a token-enabled run.
+put under rotate/pitch/zoom and terrain. **Not yet met** — blocked purely on a
+token-enabled run (all five build steps are done); also blocked on Section 2 step 3
+actually running against real Maple Hill data, since no course has a real tree
+inventory file yet.
 
 **Model:** **Opus 5** for step 1 (coordinate sync — same class of frame math that
-burned this repo before) — **done**. **Sonnet 5** for steps 2–5.
-Estimated size: 1 session Opus, 2 sessions Sonnet.
+burned this repo before) — **done**. **Sonnet 5** for steps 2–5 — **done**.
+Estimated size: 1 session Opus, 2 sessions Sonnet. **Actual: 1 Opus session
+(step 1), 1 Sonnet session (steps 2–5, including closing the point-cloud-export gap
+in Section 2 and one real cross-session regression test catch).**
 
 ---
 

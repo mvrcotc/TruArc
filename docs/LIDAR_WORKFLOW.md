@@ -7,7 +7,7 @@ Don't confuse them:
 |---|---|---|
 | Purpose | Quick point-cloud thinning for the in-app **calibration overlay** (Calibrate mode, `public/lidar/overlay.geojson`) | Section 2's **tree inventory pipeline** — per-tree crown shapes + voxel occupancy grid + DTM, replacing generic placeholder trees |
 | Input | Manually dropped `.laz`/`.las` in `raw_data/` | Automatic — derives a course's bounds from `src/data/courses.js` and fetches USGS 3DEP tiles itself |
-| Output | One flat GeoJSON of decimated points | Per course: `{course}_trees.json`, `{course}_voxels.bin`(+header), `{course}_dtm.json` |
+| Output | One flat GeoJSON of decimated points | Per course: `{course}_trees.json`, `{course}_voxels.bin`(+header), `{course}_dtm.json`, `{course}_points.bin`(+header) |
 | Status | Existing, unchanged | See `docs/ACCURACY_ROADMAP.md` §2 for exact status |
 
 The **LidarCropper** sibling-repo approach described in earlier versions of this doc
@@ -38,11 +38,14 @@ and wasn't verified there, and `docs/ACCURACY_ROADMAP.md` §2 for the full statu
 3. Preprocesses via PDAL: reproject to a metric working CRS → crop → ground-classify
    (skipped if the input is already classified) → denoise → height-above-ground.
 4. Builds the voxel occupancy grid and DTM.
-5. Segments individual trees — CHM → treetop detection → crown growing → per-tree
+5. Exports a decimated, vegetation-prioritized point cloud (≤300k points, WGS84
+   lng/lat/altitude) for Section 3's "true view" toggle — the literal LiDAR returns,
+   for when a player wants to see past the parametric tree rendering.
+6. Segments individual trees — CHM → treetop detection → crown growing → per-tree
    height, crown radius, crown base, 6-slice crown profile, and conifer/deciduous
    form. `--skip-trees` stops before this if only the collision/terrain outputs are
    wanted. See `docs/ACCURACY_ROADMAP.md` §2 for measured accuracy and its limits.
-6. Writes everything to `processed_data/courses/{course_id}/`; `--upload` pushes to
+7. Writes everything to `processed_data/courses/{course_id}/`; `--upload` pushes to
    Firebase Storage at `lidar/{course_id}/...`.
 
 ### Testing

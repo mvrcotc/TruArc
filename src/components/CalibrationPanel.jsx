@@ -4,14 +4,14 @@
 
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { SlidersHorizontal, ArrowLeft, ArrowRight, ArrowUp, ArrowDown, RotateCcw, Scan } from 'lucide-react';
+import { SlidersHorizontal, ArrowLeft, ArrowRight, ArrowUp, ArrowDown, RotateCcw, Scan, Eye } from 'lucide-react';
 import {
     getCalibrationOffset,
     setCalibrationOffset,
     nudgeOffset,
 } from '../utils/calibrationOffset';
 
-export default function CalibrationPanel({ courseId = 'default', onOffsetChange, lidarEnabled, onLidarToggle }) {
+export default function CalibrationPanel({ courseId = 'default', onOffsetChange, lidarEnabled, onLidarToggle, trueViewEnabled, onTrueViewToggle }) {
     const [offset, setOffset] = useState({ dLng: 0, dLat: 0, dElev: 0 });
     const [stepSize, setStepSize] = useState(1); // meters
 
@@ -68,6 +68,26 @@ export default function CalibrationPanel({ courseId = 'default', onOffsetChange,
                         <motion.div
                             className="absolute top-0.5 w-4 h-4 rounded-full bg-white shadow"
                             animate={{ left: lidarEnabled ? '1.25rem' : '0.125rem' }}
+                            transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+                        />
+                    </button>
+                </div>
+            )}
+
+            {/* "True view" raw point cloud toggle — Section 3 step 4 */}
+            {onTrueViewToggle && (
+                <div className="flex items-center justify-between mb-3 p-2 rounded-md bg-truarc-bg/40 border border-truarc-border/20">
+                    <div className="flex items-center gap-2">
+                        <Eye size={14} className="text-truarc-accent" />
+                        <span className="text-xs text-truarc-text">True view (raw points)</span>
+                    </div>
+                    <button
+                        onClick={() => onTrueViewToggle(!trueViewEnabled)}
+                        className={`relative w-10 h-5 rounded-full transition-colors ${trueViewEnabled ? 'bg-truarc-accent' : 'bg-truarc-border/40'}`}
+                    >
+                        <motion.div
+                            className="absolute top-0.5 w-4 h-4 rounded-full bg-white shadow"
+                            animate={{ left: trueViewEnabled ? '1.25rem' : '0.125rem' }}
                             transition={{ type: 'spring', damping: 25, stiffness: 300 }}
                         />
                     </button>

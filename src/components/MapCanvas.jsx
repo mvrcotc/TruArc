@@ -17,14 +17,17 @@ import {
 import { simulateDiscFlightAsync } from '../physics/flightEngine';
 import { buildTerrainProfile } from '../physics/terrainProfile';
 import { courseToGeoJSON } from '../data/courses';
-import { applyOffsetToGeoJSON } from '../utils/calibrationOffset';
+import { applyOffsetToGeoJSON, applyOffsetToTrees, applyOffsetToPointCloud } from '../utils/calibrationOffset';
+import TreeLayer from '../map/TreeLayer';
+import PointCloudLayer from '../map/PointCloudLayer';
+import { decodePointCloud } from '../map/pointCloudFormat';
 
 const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN;
 
 /** Path to LiDAR GeoJSON (place processed file at public/lidar/overlay.geojson) */
 const LIDAR_GEOJSON_URL = '/lidar/overlay.geojson';
 
-const MapCanvas = forwardRef(({ onMeasure, onFlightComplete, onMove, selectedDisc, throwSettings, wind, mode, activeCourse, activeHole, lidarEnabled, calibrationOffset }, ref) => {
+const MapCanvas = forwardRef(({ onMeasure, onFlightComplete, onMove, selectedDisc, throwSettings, wind, mode, activeCourse, activeHole, lidarEnabled, trueViewEnabled, calibrationOffset }, ref) => {
     const containerRef = useRef(null);
     const mapRef = useRef(null);
     const markersRef = useRef([]);
@@ -36,6 +39,10 @@ const MapCanvas = forwardRef(({ onMeasure, onFlightComplete, onMove, selectedDis
     const [mapError, setMapError] = useState(null);
     const teePointRef = useRef(null);
     const targetPointRef = useRef(null);
+    const treeLayerRef = useRef(null);
+    const treeLayerCourseIdRef = useRef(null);
+    const pointCloudLayerRef = useRef(null);
+    const pointCloudLayerCourseIdRef = useRef(null);
 
     // ─── EXPOSE METHODS ─────────────────────────────────────────
     useImperativeHandle(ref, () => ({
@@ -151,17 +158,13 @@ const MapCanvas = forwardRef(({ onMeasure, onFlightComplete, onMove, selectedDis
         map.on('style.load', () => {
             if (instanceRemoved) return;
             try {
-                // Mapbox Standard configs for full 3D environment
-                map.setConfigProperty('basemap', 'show3dTrees', true);
+                // show3dTrees deliberately left OFF (was: true): TreeLayer
+                // now owns tree rendering from the Section 2 LiDAR
+                // inventory, and leaving Mapbox's generic Standard-style
+                // trees on would double them up on any course that has a
+                // real inventory. show3dObjects (buildings/landmarks,
+                // unrelated to trees) stays on.
                 map.setConfigProperty('basemap', 'show3dObjects', true);
-                
-                // Register multiple custom 3D models for variety
-                try {
-                    map.addModel('tree1', '/models/tree_pineDefaultA.glb');
-                    map.addModel('tree2', '/models/tree_thin_dark.glb');
-                } catch (addErr) {
-                    console.log('Models already registered or failed:', addErr.message);
-                }
             } catch (e) {
                 console.warn('Failed to set standard basemap config:', e);
             }
@@ -862,79 +865,123 @@ const MapCanvas = forwardRef(({ onMeasure, onFlightComplete, onMove, selectedDis
         };
     }, [mapLoaded, lidarEnabled, calibrationOffset]);
 
-    // ─── OBSTACLE LAYER (LiDAR trees per course) ─────────────────
+    // ─── TREE LAYER (Section 2 LiDAR tree inventory, per course) ──
+    //
+    // Replaces the old GLB `model`-layer approach (two generic Kenney
+    // trees stretched by a height number) with TreeLayer — a Three.js
+    // custom layer rendering each tree's real, measured crown shape.
+    // See src/map/TreeLayer.js and docs/ACCURACY_ROADMAP.md §3.
     useEffect(() => {
         const map = mapRef.current;
         if (!mapLoaded || !map) return;
 
-        const sourceId = 'obstacle-trees';
-        const layerId = 'obstacle-trees-layer';
         const courseId = activeCourse?.id;
 
-        if (!courseId) {
-            if (map.getLayer(layerId)) map.removeLayer(layerId);
-            if (map.getSource(sourceId)) map.removeSource(sourceId);
-            return;
+        // Course changed (or cleared) — TreeLayer's coordinate frame is
+        // anchored at construction time, so a new course needs a new
+        // instance rather than an update to the existing one.
+        if (treeLayerRef.current && treeLayerCourseIdRef.current !== courseId) {
+            if (map.getLayer(treeLayerRef.current.id)) map.removeLayer(treeLayerRef.current.id);
+            treeLayerRef.current = null;
+            treeLayerCourseIdRef.current = null;
+        }
+
+        if (!courseId || !activeCourse?.center) return;
+
+        if (!treeLayerRef.current) {
+            const layer = new TreeLayer({
+                id: `truarc-trees-${courseId}`,
+                anchorLng: activeCourse.center.lng,
+                anchorLat: activeCourse.center.lat,
+            });
+            map.addLayer(layer);
+            treeLayerRef.current = layer;
+            treeLayerCourseIdRef.current = courseId;
         }
 
         const ac = new AbortController();
-        fetch(`/lidar/${courseId}_trees.geojson`, { signal: ac.signal })
+        fetch(`/lidar/${courseId}_trees.json`, { signal: ac.signal })
             .then((res) => {
-                if (!res.ok) throw new Error('Not found');
+                if (!res.ok) throw new Error(`Not found (${res.status})`);
                 return res.json();
             })
-            .then((geojson) => {
+            .then((data) => {
                 const offset = calibrationOffset || { dLng: 0, dLat: 0, dElev: 0 };
-                const adjusted = applyOffsetToGeoJSON(geojson, offset);
-
-                if (map.getSource(sourceId)) {
-                    map.getSource(sourceId).setData(adjusted);
-                } else {
-                    map.addSource(sourceId, { type: 'geojson', data: adjusted });
-                    map.addLayer({
-                        id: layerId,
-                        type: 'model',
-                        source: sourceId,
-                        layout: {
-                            // Pseudo-randomly pick between the 2 models based on the tree's height
-                            // multiplying heightM by 10 and modulo 2 gives a random-feeling distribution
-                            'model-id': [
-                                'match',
-                                ['%', ['round', ['*', ['get', 'heightM'], 10]], 2],
-                                0, 'tree1',
-                                1, 'tree2',
-                                'tree1'
-                            ]
-                        },
-                        paint: {
-                            // Dynamically scale the 3D asset based on LiDAR height data (heightM)
-                            // We map 100m to a scale of [6, 6, 10] because the downloaded Kenney models 
-                            // already have a large base size (approx 10 meters tall natively).
-                            'model-scale': [
-                                'interpolate',
-                                ['linear'],
-                                ['get', 'heightM'],
-                                0, ['literal', [0, 0, 0]],
-                                100, ['literal', [6.0, 6.0, 10.0]]
-                            ],
-                            'model-opacity': 1.0,
-                            'model-color': '#228B22' // Adds slight foliage tinting
-                        },
-                    });
-                }
+                const trees = applyOffsetToTrees(data.trees || [], offset);
+                treeLayerRef.current?.setTrees(trees);
             })
             .catch((err) => {
-                console.error('Obstacle Layer Failed:', err);
-                if (map.getLayer(layerId)) map.removeLayer(layerId);
-                if (map.getSource(sourceId)) map.removeSource(sourceId);
+                if (err.name === 'AbortError') return;
+                // Most courses don't have a processed inventory yet
+                // (Section 2's pipeline hasn't been run against real
+                // LiDAR for them) — this is an expected, not an error,
+                // state; log quietly and leave the layer empty.
+                console.info(`No LiDAR tree inventory for "${courseId}" (${err.message}); rendering none.`);
+                treeLayerRef.current?.setTrees([]);
             });
 
-        return () => {
-            ac.abort();
-            if (map.getLayer(layerId)) map.removeLayer(layerId);
-            if (map.getSource(sourceId)) map.removeSource(sourceId);
-        };
-    }, [mapLoaded, activeCourse?.id, calibrationOffset]);
+        // Note: this cleanup only aborts the in-flight fetch — it does
+        // NOT remove the TreeLayer itself. Removing it here would tear
+        // it down on every calibrationOffset change (a dependency of
+        // this same effect), forcing a full scene rebuild for what's
+        // meant to be a cheap re-tint. The course-change branch above
+        // already removes the layer explicitly when courseId changes.
+        return () => ac.abort();
+    }, [mapLoaded, activeCourse?.id, activeCourse?.center?.lng, activeCourse?.center?.lat, calibrationOffset]);
+
+    // ─── "TRUE VIEW" POINT CLOUD (Section 3, step 4) ──────────────
+    //
+    // Opt-in raw-point alternative to TreeLayer's parametric crowns —
+    // see src/map/PointCloudLayer.js. Off by default (trueViewEnabled),
+    // and only fetched at all while it's on, since the point export is
+    // the largest of the LiDAR outputs (up to ~300k points/course).
+    useEffect(() => {
+        const map = mapRef.current;
+        if (!mapLoaded || !map) return;
+
+        const courseId = activeCourse?.id;
+
+        if (pointCloudLayerRef.current && pointCloudLayerCourseIdRef.current !== courseId) {
+            if (map.getLayer(pointCloudLayerRef.current.id)) map.removeLayer(pointCloudLayerRef.current.id);
+            pointCloudLayerRef.current = null;
+            pointCloudLayerCourseIdRef.current = null;
+        }
+
+        if (!trueViewEnabled || !courseId || !activeCourse?.center) {
+            pointCloudLayerRef.current?.clear();
+            return;
+        }
+
+        if (!pointCloudLayerRef.current) {
+            const layer = new PointCloudLayer({
+                id: `truarc-points-${courseId}`,
+                anchorLng: activeCourse.center.lng,
+                anchorLat: activeCourse.center.lat,
+            });
+            map.addLayer(layer);
+            pointCloudLayerRef.current = layer;
+            pointCloudLayerCourseIdRef.current = courseId;
+        }
+
+        const ac = new AbortController();
+        fetch(`/lidar/${courseId}_points.bin`, { signal: ac.signal })
+            .then((res) => {
+                if (!res.ok) throw new Error(`Not found (${res.status})`);
+                return res.arrayBuffer();
+            })
+            .then((buffer) => {
+                const decoded = decodePointCloud(buffer);
+                const offset = calibrationOffset || { dLng: 0, dLat: 0, dElev: 0 };
+                pointCloudLayerRef.current?.loadPoints(applyOffsetToPointCloud(decoded, offset));
+            })
+            .catch((err) => {
+                if (err.name === 'AbortError') return;
+                console.info(`No LiDAR point cloud for "${courseId}" (${err.message}); true view unavailable.`);
+                pointCloudLayerRef.current?.clear();
+            });
+
+        return () => ac.abort();
+    }, [mapLoaded, trueViewEnabled, activeCourse?.id, activeCourse?.center?.lng, activeCourse?.center?.lat, calibrationOffset]);
 
     // ─── RENDER ─────────────────────────────────────────────────
     return (

@@ -15,32 +15,55 @@
  * ────────────────────────────────────────────────────────────────────
  * STATUS: coordinate sync (step 1) is complete and unit-tested against
  * Mapbox's own MercatorCoordinate — see src/map/mercatorTransform.js and
- * tests/map/mercatorTransform.test.mjs.
+ * tests/map/mercatorTransform.test.mjs. Step 2 (this file, plus
+ * treeGeometry.js) replaces the placeholder cylinder with real
+ * profile-lathed crowns, batched into a small number of draw calls
+ * regardless of tree count, with camera-distance LOD.
  *
- * The geometry here is a deliberate PLACEHOLDER: one crude cylinder per
- * tree, sized from the record, existing only so the transform can be
- * eyeballed on a real map. Step 2 replaces `buildTreeMesh()` with
- * profile-lathed crowns, batching, and LOD. Everything outside that one
- * function — context sharing, the matrix, terrain anchoring, disposal —
- * is the finished part.
+ * RENDERING STRATEGY: each tree gets its own small LatheGeometry (crown,
+ * from its measured profile) and CylinderGeometry (trunk), which are
+ * then MERGED into one static BufferGeometry per tier — this keeps every
+ * tree's real, distinct shape (unlike GPU instancing, which would need
+ * one shared template geometry) while still costing a handful of draw
+ * calls for a whole course rather than thousands. Trees beyond
+ * `lodThresholdM` of the camera are drawn as merged cross-billboards
+ * instead of full geometry. The near/far split is recomputed on map
+ * `moveend`/`zoomend` (via `_scheduleLodRecompute`), not every frame —
+ * rebuilding a merged BufferGeometry for a few thousand trees is too
+ * costly to do 60 times a second, and LOD only needs to react to where
+ * the camera settles, not to every intermediate frame of getting there.
  * ────────────────────────────────────────────────────────────────────
  *
  * VERIFICATION GAP, STATED PLAINLY: no Mapbox token was available where
  * this was written, so the layer has never been drawn on a real map. The
- * mathematics underneath it is verified exactly, and the GL plumbing
- * follows Mapbox's documented custom-layer contract, but "the trees
- * appear in the right place on screen" is unconfirmed. First run with a
- * token is the real test — and the three things most likely to be wrong
- * are called out at their sites below (winding, terrain exaggeration,
- * and globe projection).
+ * coordinate mathematics is verified exactly (step 1), and the crown
+ * math is unit-tested (treeGeometry.test.mjs), but "the trees appear in
+ * the right place, at a plausible size, and hold 60fps" is unconfirmed.
+ * First run with a token is the real test — the things most likely to
+ * be wrong are called out at their sites below (winding/culling, terrain
+ * exaggeration, and LOD threshold tuning, which was chosen from the
+ * roadmap's ~300m suggestion, not measured against a real frame budget).
  */
 
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import {
     createLocalFrame,
     lngLatAltToScene,
     sceneProjectionMatrix,
 } from './mercatorTransform.js';
+import {
+    crownLatheProfile,
+    trunkRadiusM,
+    jitteredTreeColorHSL,
+    billboardQuadGeometry,
+    lodTierForDistance,
+} from './treeGeometry.js';
+
+const CROWN_RADIAL_SEGMENTS = 7;   // modest poly count: thousands of these get merged
+const TRUNK_RADIAL_SEGMENTS = 6;
+const LOD_THRESHOLD_M = 300;       // roadmap's suggested near/far split; unmeasured against a real frame budget
+const LOD_RECOMPUTE_DEBOUNCE_MS = 250;
 
 export default class TreeLayer {
     /**
@@ -66,6 +89,9 @@ export default class TreeLayer {
         this.camera = null;
         this._trees = [];
         this._disposables = [];
+        this._foliageTexture = null;
+        this._lodRecomputeTimer = null;
+        this._onCameraIdle = () => this._scheduleLodRecompute();
     }
 
     // ─── MAPBOX LIFECYCLE ────────────────────────────────────────
@@ -93,11 +119,23 @@ export default class TreeLayer {
         // Mapbox owns the framebuffer and has already drawn into it.
         this.renderer.autoClear = false;
 
+        // LOD recompute on camera idle, not per frame — see the class
+        // docstring's RENDERING STRATEGY note.
+        map.on('moveend', this._onCameraIdle);
+        map.on('zoomend', this._onCameraIdle);
+
         if (this._trees.length) this._rebuildScene();
     }
 
     onRemove() {
+        if (this._lodRecomputeTimer) clearTimeout(this._lodRecomputeTimer);
+        this.map?.off('moveend', this._onCameraIdle);
+        this.map?.off('zoomend', this._onCameraIdle);
         this._clearScene();
+        if (this._foliageTexture) {
+            this._foliageTexture.dispose();
+            this._foliageTexture = null;
+        }
         // Do NOT dispose the renderer: it wraps Mapbox's own context and
         // canvas, and disposing would tear down the map's GL state.
         this.renderer = null;
@@ -137,6 +175,8 @@ export default class TreeLayer {
      */
     setTrees(trees) {
         this._trees = trees ?? [];
+        this._treeScenePositions = this._trees.map((t) =>
+            lngLatAltToScene(this.frame, t.lng, t.lat, t.ground_elev_m));
         if (this.renderer) this._rebuildScene();
         this.map?.triggerRepaint();
     }
@@ -150,50 +190,175 @@ export default class TreeLayer {
         }
     }
 
+    /**
+     * Camera position in SCENE space, from Mapbox's actual current
+     * camera (`getFreeCameraOptions`, a public/documented API) rather
+     * than a proxy like map-centre — LOD should measure distance from
+     * where the viewer really is. Converted via `lngLatAltToScene`, the
+     * same verified transform everything else uses, not new math.
+     */
+    _cameraScenePosition() {
+        const camera = this.map.getFreeCameraOptions();
+        const pos = camera.position; // MercatorCoordinate
+        if (!pos) return { x: 0, y: 200, z: 0 }; // defensive fallback, should not occur
+        const ll = pos.toLngLat();
+        return lngLatAltToScene(this.frame, ll.lng, ll.lat, pos.toAltitude());
+    }
+
+    _scheduleLodRecompute() {
+        if (this._lodRecomputeTimer) clearTimeout(this._lodRecomputeTimer);
+        this._lodRecomputeTimer = setTimeout(() => {
+            this._lodRecomputeTimer = null;
+            if (this._trees.length) this._rebuildScene();
+        }, LOD_RECOMPUTE_DEBOUNCE_MS);
+    }
+
     _rebuildScene() {
         this._clearScene();
-        for (const tree of this._trees) {
-            const mesh = this.buildTreeMesh(tree);
-            if (mesh) this.scene.add(mesh);
+        if (!this._trees.length) return;
+
+        const eye = this._cameraScenePosition();
+        const nearCrownGeoms = [];
+        const nearTrunkGeoms = [];
+        const farBillboardGeoms = [];
+
+        for (let i = 0; i < this._trees.length; i++) {
+            const tree = this._trees[i];
+            const base = this._treeScenePositions[i];
+            const dx = base.x - eye.x;
+            const dz = base.z - eye.z;
+            const dist = Math.hypot(dx, dz); // ground distance; camera altitude
+            // dominates less for a course-scale oblique view than
+            // horizontal distance does, and avoids near trees flipping
+            // to "far" just because the camera pitches up.
+
+            if (lodTierForDistance(dist, LOD_THRESHOLD_M) === 'near') {
+                nearCrownGeoms.push(this._buildCrownGeometry(tree, base));
+                nearTrunkGeoms.push(this._buildTrunkGeometry(tree, base));
+            } else {
+                farBillboardGeoms.push(this._buildBillboardGeometry(tree, base));
+            }
+        }
+
+        if (nearCrownGeoms.length) {
+            const merged = mergeGeometries(nearCrownGeoms, false);
+            for (const g of nearCrownGeoms) g.dispose();
+            const material = new THREE.MeshLambertMaterial({
+                vertexColors: true,
+                // DoubleSide is REQUIRED, not cosmetic. The scene→mercator
+                // transform has negative determinant (right-handed scene,
+                // left-handed mercator), which mirrors triangle winding, so
+                // front faces would otherwise be culled and every crown
+                // would be invisible with no error anywhere. See
+                // mercatorTransform.js.
+                side: THREE.DoubleSide,
+            });
+            this._disposables.push(merged, material);
+            this.scene.add(new THREE.Mesh(merged, material));
+        }
+
+        if (nearTrunkGeoms.length) {
+            const merged = mergeGeometries(nearTrunkGeoms, false);
+            for (const g of nearTrunkGeoms) g.dispose();
+            const material = new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide });
+            this._disposables.push(merged, material);
+            this.scene.add(new THREE.Mesh(merged, material));
+        }
+
+        if (farBillboardGeoms.length) {
+            const merged = mergeGeometries(farBillboardGeoms, false);
+            for (const g of farBillboardGeoms) g.dispose();
+            const material = new THREE.MeshLambertMaterial({
+                map: this._getFoliageTexture(),
+                transparent: true,
+                alphaTest: 0.4, // discard the texture's transparent margin rather than blending it (avoids sorting artifacts between overlapping billboards)
+                side: THREE.DoubleSide,
+                vertexColors: true,
+            });
+            this._disposables.push(merged, material);
+            this.scene.add(new THREE.Mesh(merged, material));
         }
     }
 
+    _buildCrownGeometry(tree, base) {
+        const points = crownLatheProfile(tree.profile, tree.crown_radius_m, tree.crown_base_m, tree.height_m)
+            .map((p) => new THREE.Vector2(Math.max(p.radius, 1e-4), p.y)); // LatheGeometry wants x>0; a true 0 apex still closes correctly in practice, but avoid relying on exact-zero edge behavior
+        const geometry = new THREE.LatheGeometry(points, CROWN_RADIAL_SEGMENTS);
+        this._paintVertexColor(geometry, tree, base);
+        // crown_base_m/height_m are heights ABOVE GROUND (the LiDAR
+        // height-above-ground convention Section 2 measures in), so the
+        // lathe's own Y=0 is the tree's ground, not sea level — base.y
+        // (the tree's absolute scene altitude) must be added here.
+        geometry.translate(base.x, base.y, base.z);
+        return geometry;
+    }
+
+    _buildTrunkGeometry(tree, base) {
+        const radius = trunkRadiusM(tree.height_m);
+        const trunkHeight = Math.max(tree.crown_base_m, 0.2);
+        const geometry = new THREE.CylinderGeometry(radius * 0.7, radius, trunkHeight, TRUNK_RADIAL_SEGMENTS);
+        geometry.translate(0, trunkHeight / 2, 0); // CylinderGeometry is centred on its own origin; shift so its base sits at y=0 (ground)
+        this._paintVertexColor(geometry, { form: 'trunk' }, base, TRUNK_COLOR);
+        geometry.translate(base.x, base.y, base.z);
+        return geometry;
+    }
+
+    _buildBillboardGeometry(tree, base) {
+        const { positions, uvs, indices } = billboardQuadGeometry(tree.crown_radius_m * 2, tree.height_m - tree.crown_base_m, tree.crown_base_m);
+        const geometry = new THREE.BufferGeometry();
+        geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+        geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+        geometry.setIndex(indices);
+        geometry.computeVertexNormals();
+        this._paintVertexColor(geometry, tree, base);
+        // Same ground-relative-height convention as the crown lathe above.
+        geometry.translate(base.x, base.y, base.z);
+        return geometry;
+    }
+
+    /** Bakes a per-vertex color (jittered per tree) so many trees can share one merged mesh/material without losing form/individual variation. */
+    _paintVertexColor(geometry, tree, base, fixedColor = null) {
+        const count = geometry.attributes.position.count;
+        const colors = new Float32Array(count * 3);
+        const c = new THREE.Color();
+        if (fixedColor) {
+            c.set(fixedColor);
+        } else {
+            const hsl = jitteredTreeColorHSL(tree.form, base.x, base.z);
+            c.setHSL(hsl.h, hsl.s, hsl.l);
+        }
+        for (let i = 0; i < count; i++) {
+            colors[i * 3] = c.r; colors[i * 3 + 1] = c.g; colors[i * 3 + 2] = c.b;
+        }
+        geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+    }
+
     /**
-     * PLACEHOLDER — step 2 replaces this entirely.
-     *
-     * Renders each tree as a single cylinder sized from its record. It
-     * exists so the coordinate sync is visually checkable, NOT because a
-     * cylinder is an acceptable tree: collapsing the measured 6-slice
-     * crown profile into one radius throws away precisely what Section 2
-     * was built to recover.
-     *
-     * Step 2 should lathe `tree.profile` into a crown mesh (scaled by
-     * `crown_radius_m`, spanning `crown_base_m` to `height_m`), add a
-     * trunk below the crown base, batch by `form`, and add distance LOD.
-     * The positioning below is finished and can be kept as-is.
+     * A soft radial foliage sprite, generated once at runtime (no asset
+     * file: nothing like this exists in the repo, and a procedural blob
+     * is a defensible placeholder for a distant tree's silhouette —
+     * revisit if the billboards read as too uniform once actually seen
+     * on a map).
      */
-    buildTreeMesh(tree) {
-        const base = lngLatAltToScene(this.frame, tree.lng, tree.lat, tree.ground_elev_m);
-        const height = tree.height_m;
-        const radius = tree.crown_radius_m;
+    _getFoliageTexture() {
+        if (this._foliageTexture) return this._foliageTexture;
+        const size = 128;
+        const canvas = document.createElement('canvas');
+        canvas.width = size;
+        canvas.height = size;
+        const ctx = canvas.getContext('2d');
+        const gradient = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+        gradient.addColorStop(0, 'rgba(255,255,255,1)');
+        gradient.addColorStop(0.7, 'rgba(255,255,255,0.85)');
+        gradient.addColorStop(1, 'rgba(255,255,255,0)');
+        ctx.fillStyle = gradient;
+        ctx.fillRect(0, 0, size, size);
 
-        const geometry = new THREE.CylinderGeometry(radius * 0.6, radius, height, 8);
-        const material = new THREE.MeshLambertMaterial({
-            color: tree.form === 'conifer' ? 0x2d5016 : 0x3f7d20,
-            // DoubleSide is REQUIRED, not cosmetic. The scene→mercator
-            // transform has negative determinant (right-handed scene,
-            // left-handed mercator), which mirrors triangle winding, so
-            // front faces would otherwise be culled and the trees would
-            // be invisible with no error anywhere. See mercatorTransform.js.
-            side: THREE.DoubleSide,
-        });
-        this._disposables.push(geometry, material);
-
-        const mesh = new THREE.Mesh(geometry, material);
-        // CylinderGeometry is centred on its own origin and built around
-        // the Y axis, which is why the scene frame is Y-up: no corrective
-        // rotation is needed here or in step 2's lathed crowns.
-        mesh.position.set(base.x, base.y + height / 2, base.z);
-        return mesh;
+        const texture = new THREE.CanvasTexture(canvas);
+        texture.colorSpace = THREE.SRGBColorSpace;
+        this._foliageTexture = texture;
+        return texture;
     }
 }
+
+const TRUNK_COLOR = 0x5a4632;
