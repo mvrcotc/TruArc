@@ -21,13 +21,14 @@ import { applyOffsetToGeoJSON, applyOffsetToTrees, applyOffsetToPointCloud, appl
 import TreeLayer from '../map/TreeLayer';
 import PointCloudLayer from '../map/PointCloudLayer';
 import { decodePointCloud } from '../map/pointCloudFormat';
+import { EDIT_ACTIONS } from '../editor/holeEditState';
 
 const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN;
 
 /** Path to LiDAR GeoJSON (place processed file at public/lidar/overlay.geojson) */
 const LIDAR_GEOJSON_URL = '/lidar/overlay.geojson';
 
-const MapCanvas = forwardRef(({ onMeasure, onFlightComplete, onMove, selectedDisc, throwSettings, wind, mode, activeCourse, activeHole, lidarEnabled, trueViewEnabled, calibrationOffset }, ref) => {
+const MapCanvas = forwardRef(({ onMeasure, onFlightComplete, onMove, selectedDisc, throwSettings, wind, mode, activeCourse, activeHole, lidarEnabled, trueViewEnabled, calibrationOffset, editState, editTool, editDispatch }, ref) => {
     const containerRef = useRef(null);
     const mapRef = useRef(null);
     const markersRef = useRef([]);
@@ -224,8 +225,48 @@ const MapCanvas = forwardRef(({ onMeasure, onFlightComplete, onMove, selectedDis
             handleMeasureClick(lngLat, map);
         } else if (currentMode === 'throw') {
             handleThrowClick(lngLat, map);
+        } else if (currentMode === 'edit') {
+            handleEditClick(lngLat);
         }
-    }, [mode, selectedDisc, throwSettings, wind, onMeasure, onFlightComplete, activeHole, activeCourse]);
+    }, [mode, selectedDisc, throwSettings, wind, onMeasure, onFlightComplete, activeHole, activeCourse, editTool, editDispatch]);
+
+    // ─── EDIT MODE (Section 5, in-app course editor) ──────────────
+    //
+    // Purely a click -> dispatch adapter: the actual edit STATE lives in
+    // App.jsx's holeEditReducer (src/editor/holeEditState.js), fully
+    // tested there without any Mapbox dependency. This function's only
+    // job is translating "the user clicked here while tool X was
+    // selected" into the matching action — no branch here decides
+    // anything the reducer doesn't already decide for itself (e.g. a
+    // stray ADD_OB_VERTEX with no polygon started is the reducer's
+    // no-op, not a check duplicated here).
+    function handleEditClick(lngLat) {
+        if (!editDispatch || !editTool) return;
+        const point = { lng: lngLat.lng, lat: lngLat.lat };
+
+        switch (editTool) {
+            case 'tee':
+                editDispatch({ type: EDIT_ACTIONS.SET_TEE, point });
+                break;
+            case 'basket':
+                editDispatch({ type: EDIT_ACTIONS.SET_BASKET, point });
+                break;
+            case 'ob':
+                editDispatch({ type: EDIT_ACTIONS.ADD_OB_VERTEX, point });
+                break;
+            case 'mando-left':
+                editDispatch({ type: EDIT_ACTIONS.ADD_MANDO, point, direction: 'left' });
+                break;
+            case 'mando-right':
+                editDispatch({ type: EDIT_ACTIONS.ADD_MANDO, point, direction: 'right' });
+                break;
+            case 'dropzone':
+                editDispatch({ type: EDIT_ACTIONS.ADD_DROPZONE, point });
+                break;
+            default:
+                break;
+        }
+    }
 
     // Update click handler when mode changes
     useEffect(() => {
@@ -239,7 +280,7 @@ const MapCanvas = forwardRef(({ onMeasure, onFlightComplete, onMove, selectedDis
         // Cursor updates (canvas may be undefined before map fully loads)
         const canvas = map.getCanvas?.();
         if (canvas?.style) {
-            canvas.style.cursor = mode === 'measure' || mode === 'throw' ? 'crosshair' : '';
+            canvas.style.cursor = mode === 'measure' || mode === 'throw' || mode === 'edit' ? 'crosshair' : '';
         }
 
         return () => {
@@ -589,6 +630,119 @@ const MapCanvas = forwardRef(({ onMeasure, onFlightComplete, onMove, selectedDis
         holeMarkersRef.current.forEach(m => m.remove());
         holeMarkersRef.current = [];
     }
+
+    // ─── EDIT MODE OVERLAY (Section 5) ─────────────────────────
+    //
+    // Renders the CURRENT in-progress edit (src/editor/holeEditState.js's
+    // reducer state, owned by App.jsx) as a live GeoJSON layer: tee/
+    // basket points, completed + in-progress OB polygons, mando points,
+    // dropzone points. Purely a one-way state -> GeoJSON translation —
+    // this effect never mutates editState, only redraws when it
+    // changes. NOT visually verified (no Mapbox token in this
+    // environment — same standing gap as Sections 3/4's rendering).
+    useEffect(() => {
+        const map = mapRef.current;
+        if (!mapLoaded || !map) return;
+
+        const id = 'course-editor-overlay';
+        const showOverlay = mode === 'edit' && editState;
+
+        if (!showOverlay) {
+            if (map.getLayer(`${id}-ob-fill`)) map.removeLayer(`${id}-ob-fill`);
+            if (map.getLayer(`${id}-ob-line`)) map.removeLayer(`${id}-ob-line`);
+            if (map.getLayer(`${id}-points`)) map.removeLayer(`${id}-points`);
+            if (map.getSource(id)) map.removeSource(id);
+            return;
+        }
+
+        const features = [];
+        if (editState.tee) {
+            features.push({
+                type: 'Feature',
+                geometry: { type: 'Point', coordinates: [editState.tee.lng, editState.tee.lat] },
+                properties: { kind: 'tee', color: '#aa66ff' },
+            });
+        }
+        if (editState.basket) {
+            features.push({
+                type: 'Feature',
+                geometry: { type: 'Point', coordinates: [editState.basket.lng, editState.basket.lat] },
+                properties: { kind: 'basket', color: '#00ff88' },
+            });
+        }
+        for (const ring of editState.obPolygons) {
+            const coords = ring.map((p) => [p.lng, p.lat]);
+            coords.push(coords[0]); // close the ring for GeoJSON Polygon
+            features.push({
+                type: 'Feature',
+                geometry: { type: 'Polygon', coordinates: [coords] },
+                properties: { kind: 'ob' },
+            });
+        }
+        if (editState.activePolygon && editState.activePolygon.length > 0) {
+            const coords = editState.activePolygon.map((p) => [p.lng, p.lat]);
+            features.push({
+                type: 'Feature',
+                geometry: coords.length > 1 ? { type: 'LineString', coordinates: coords } : { type: 'Point', coordinates: coords[0] },
+                properties: { kind: 'ob-active' },
+            });
+        }
+        for (const mando of editState.mandos) {
+            features.push({
+                type: 'Feature',
+                geometry: { type: 'Point', coordinates: [mando.point.lng, mando.point.lat] },
+                properties: { kind: 'mando', color: mando.direction === 'left' ? '#ff6b35' : '#ffaa33' },
+            });
+        }
+        for (const dz of editState.dropzones) {
+            features.push({
+                type: 'Feature',
+                geometry: { type: 'Point', coordinates: [dz.lng, dz.lat] },
+                properties: { kind: 'dropzone', color: '#00e5ff' },
+            });
+        }
+
+        const geojson = { type: 'FeatureCollection', features };
+
+        if (map.getSource(id)) {
+            map.getSource(id).setData(geojson);
+        } else {
+            map.addSource(id, { type: 'geojson', data: geojson });
+
+            map.addLayer({
+                id: `${id}-ob-fill`,
+                type: 'fill',
+                source: id,
+                filter: ['==', ['get', 'kind'], 'ob'],
+                paint: { 'fill-color': '#ff3366', 'fill-opacity': 0.15 },
+            });
+            map.addLayer({
+                id: `${id}-ob-line`,
+                type: 'line',
+                source: id,
+                filter: ['in', ['get', 'kind'], ['literal', ['ob', 'ob-active']]],
+                paint: { 'line-color': '#ff3366', 'line-width': 2, 'line-dasharray': [2, 1] },
+            });
+            map.addLayer({
+                id: `${id}-points`,
+                type: 'circle',
+                source: id,
+                filter: ['in', ['get', 'kind'], ['literal', ['tee', 'basket', 'mando', 'dropzone']]],
+                paint: {
+                    'circle-radius': 7,
+                    'circle-color': ['get', 'color'],
+                    'circle-stroke-width': 2,
+                    'circle-stroke-color': '#ffffff',
+                },
+            });
+        }
+
+        // No cleanup function: exiting edit mode (or unmounting) re-runs
+        // this same effect with showOverlay=false, which removes the
+        // layer/source via the branch above — a separate cleanup here
+        // would just double-remove. (Matches drawFlightPath's own note
+        // on this file's general aversion to remove+re-add churn.)
+    }, [mapLoaded, mode, editState]);
 
     // ─── DRAWING HELPERS ───────────────────────────────────────
 

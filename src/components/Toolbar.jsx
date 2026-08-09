@@ -12,6 +12,7 @@ import {
     RotateCcw,
     Layers,
     Zap,
+    MapPin,
 } from 'lucide-react';
 import FirebaseAuthBar from './FirebaseAuthBar';
 import { getEngineChoice, toggleEngineChoice } from '../physics/engineFlag';
@@ -20,6 +21,7 @@ const MODES = [
     { id: 'course', icon: Layers, label: 'Courses', shortcut: 'L' },
     { id: 'measure', icon: Ruler, label: 'Measure', shortcut: 'M' },
     { id: 'throw', icon: Disc3, label: 'Throw', shortcut: 'T' },
+    { id: 'edit', icon: MapPin, label: 'Edit', shortcut: 'E' },
     { id: 'calibrate', icon: SlidersHorizontal, label: 'Calibrate', shortcut: 'C' },
 ];
 

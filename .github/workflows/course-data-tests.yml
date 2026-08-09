@@ -1,33 +1,46 @@
 name: Course Data & Import Tools
 
-# Tests for src/data/courses.js's Schema v2 (Section 5,
-# docs/ACCURACY_ROADMAP.md) and tools/import-osm.mjs — the OSM
-# importer that produces schema v2 holes from real OpenStreetMap data.
+# Tests for src/data/courses.js's Schema v2, tools/import-osm.mjs, and
+# the in-app course editor's pure logic (src/editor/**) — all Section 5,
+# docs/ACCURACY_ROADMAP.md.
 #
 # Blocking. normalizeHole/validateHole are exact-shape checks (a wrong
 # dataQuality flag or a NaN basket from a malformed import is a
-# correctness bug, not a judgment call), and the OSM importer's request
+# correctness bug, not a judgment call), the OSM importer's request
 # construction / response parsing are tested against a fixture built
-# from Overpass's documented schema.
+# from Overpass's documented schema, and the editor's reducer/export/
+# import/merge functions are pure and fully testable without a GL
+# context.
 #
 # NOT covered: a live Overpass query (this environment's network cannot
-# reach overpass-api.de — see import-osm.mjs's own header comment) or
-# the in-app course editor (not yet built).
+# reach overpass-api.de — see import-osm.mjs's own header comment), a
+# live Firestore round-trip (src/firebase/courseEdits.js — no Firebase
+# project configured here), or actually clicking through the editor in
+# a browser (no Mapbox token in this environment — same standing gap as
+# Sections 3/4's map rendering).
 on:
   push:
     branches: [main]
     paths:
       - 'src/data/courses.js'
+      - 'src/editor/**'
+      - 'src/firebase/courseEdits.js'
+      - 'src/components/CourseEditorPanel.jsx'
       - 'tools/import-osm.mjs'
       - 'tests/data/**'
       - 'tests/tools/**'
+      - 'tests/editor/**'
       - 'package.json'
   pull_request:
     paths:
       - 'src/data/courses.js'
+      - 'src/editor/**'
+      - 'src/firebase/courseEdits.js'
+      - 'src/components/CourseEditorPanel.jsx'
       - 'tools/import-osm.mjs'
       - 'tests/data/**'
       - 'tests/tools/**'
+      - 'tests/editor/**'
       - 'package.json'
   workflow_dispatch: {}
 
@@ -49,5 +62,8 @@ jobs:
       - name: Run OSM importer tests
         run: npm run test:tools
 
-      - name: Build (validates tools/import-osm.mjs's import of src/data/courses.js)
+      - name: Run course editor tests
+        run: npm run test:editor
+
+      - name: Build (validates App.jsx/MapCanvas.jsx/CourseEditorPanel.jsx wiring)
         run: npm run build

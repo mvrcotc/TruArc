@@ -17,6 +17,7 @@
         "test:collision": "node --test tests/physics/*.test.mjs",
         "test:data": "node --test tests/data/*.test.mjs",
         "test:tools": "node --test tests/tools/*.test.mjs",
+        "test:editor": "node --test tests/editor/*.test.mjs",
         "calibrate": "node tools/calibrate.mjs",
         "predeploy": "npm run build",
         "deploy": "gh-pages -d dist"

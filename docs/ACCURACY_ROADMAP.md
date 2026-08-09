@@ -659,9 +659,9 @@ error — larger than any physics error. Course data must be measured, not deriv
    `normalizeHole` is idempotent and used identically by the static DB, the OSM
    importer (below), and will be reused by the in-app editor once it exists — one
    canonicalization path, not three. 14 tests (`tests/data/courses.test.mjs`).
-   **Not done:** the schema still lives only in `courses.js`; nothing writes to
-   Firestore yet (only `users/{uid}` profile data does today — see
-   `src/firebase/firestore.js`). That's the in-app editor's job (item 3).
+   **Update:** the in-app editor (item 3, now built) DOES write to Firestore —
+   see that item for the important caveat that it writes personal drafts, not
+   the shared `COURSE_DATABASE` itself.
 2. **OSM importer** (`tools/import-osm.mjs`): Overpass query for
    `leisure=disc_golf_course` relations; many courses have mapped tees/baskets.
    **✅ DONE, TARGETING A DIFFERENT (also real) OSM CONVENTION.** OSM has no single
@@ -690,14 +690,52 @@ error — larger than any physics error. Course data must be measured, not deriv
    imagery at zoom 20+ to place/drag tees, baskets, OB vertices, mandos; write to
    Firestore; export/import JSON. This is also the future community-contribution
    surface (course data is the moat).
-   **❌ NOT STARTED.** This is the largest remaining piece of Section 5 — real
-   click/drag map interaction, OB polygon drawing, mando placement UI, and new
-   Firestore read/write + security-rules work (today's `firestore.js` only handles
-   `users/{uid}` profile docs, nothing course-shaped). Deferred to its own session
-   rather than rushed alongside schema v2 + the importer, consistent with how
-   Section 4 split cleanly into an implementation pass and a review pass — this is
-   a build-and-verify-interaction-by-hand piece that doesn't fit the same session
-   as a data-schema pass.
+   **✅ DONE, AS A NEW MODE RATHER THAN AN EXTENSION OF CALIBRATE MODE — AND
+   SAVING DRAFTS, NOT PUBLISHING.** `CalibrationPanel`'s "calibrate" is a LiDAR↔
+   satellite ALIGNMENT nudge (a single offset applied to already-existing data),
+   a genuinely different operation from PLACING new course geometry — folding
+   placement tools into that panel would have made both harder to use, so this
+   is a new `'edit'` mode/toolbar button (`E`) instead, deliberately.
+   Architecture: `src/editor/holeEditState.js` is a pure reducer (`SET_TEE`,
+   `SET_BASKET`, `START/ADD/FINISH/CANCEL_OB_POLYGON`, `ADD/REMOVE_MANDO`,
+   `ADD/REMOVE_DROPZONE`, `UNDO`, `RESET`, `LOAD`) with a real undo stack,
+   fully tested (32 tests) with zero Mapbox/React dependency — `MapCanvas.jsx`'s
+   'edit'-mode click handler is a thin adapter dispatching into it, not where any
+   decision logic lives. `src/editor/courseEditExport.js` handles
+   export/import/merge; `mergeHoleEdit()`'s `dataQuality` rule is the one
+   genuinely subtle piece: an edit only becomes `measured` when it supplies
+   BOTH a tee AND a basket together — adding just an OB polygon to an
+   otherwise-`estimated` hole must NOT silently upgrade its basket to
+   `measured` (a real bug this session's own tests caught and pinned down: see
+   `courseEditExport.test.mjs`'s "does NOT upgrade dataQuality" test). Save
+   writes to `users/{uid}/courseEdits/{courseId}_{holeNum}` (`src/firebase/
+   courseEdits.js`) — the SAME "your own docs only" security model
+   `firestore.js` already documents, chosen deliberately over inventing a new
+   globally-writable collection this session has no way to write real security
+   rules for or test against a live project.
+   **⚠️ IMPORTANT SCOPE CAVEAT — drafts, not the moat.** Saving currently
+   produces a personal, per-user DRAFT. It does NOT write to (or read from)
+   the shared `COURSE_DATABASE`, and nothing merges a saved draft into it —
+   the roadmap's "future community-contribution surface (course data is the
+   moat)" framing implies moderation/merge/conflict-resolution across
+   contributors, which is real, unbuilt work, not something to claim done by
+   implication. Export/Import JSON is the way an edit currently becomes
+   shareable in the meantime.
+   **⚠️ NOT VISUALLY VERIFIED.** No Mapbox token in this environment to click
+   through the actual map interaction (place a tee, drag it, draw a polygon,
+   watch the overlay render) — same standing gap as Sections 3/4's rendering.
+   What IS verified: every piece of actual DECISION logic (the reducer, undo,
+   export/import round-trip, the merge/dataQuality rule) via 32 tests with no
+   GL dependency. `MapCanvas.jsx`'s click-to-dispatch adapter and overlay-
+   rendering effect are new, thin, and — like `TreeLayer.js`/`PointCloudLayer.js`
+   before them — explicitly the unverified-glue part of this feature, not
+   silently assumed correct.
+   **Also not done:** dragging an already-placed point (the current interaction
+   is click-to-place/re-place, not click-and-drag), and OB polygons drawn here
+   are not yet consumed by Section 4's collision analysis — `analyzeCollision`
+   still only reads the voxel grid and tree capsules, not `hole.obPolygons`. The
+   roadmap's "OB-crossing warnings once Section 5 provides OB polygons" (§4
+   item 4) can now be built against real per-hole polygon data, but hasn't been.
 4. Replace `basketFromTee()` usage: computed baskets remain only as a fallback and
    are always flagged `estimated`.
    **✅ DONE** — `basketFromTee` is now a private function called from exactly one
@@ -709,18 +747,24 @@ error — larger than any physics error. Course data must be measured, not deriv
 
 **Acceptance:** Maple Hill fully re-measured via editor against satellite + published
 caddie book; every hole's UI shows data quality; OB renders and feeds Section 4.
-**⚠️ PARTIALLY MET.** Every hole's UI shows data quality (done). Maple Hill has NOT
-been re-measured — that needs the in-app editor (item 3, not started) and a human
-with satellite imagery + the caddie book, neither of which this session can do
-alone. OB rendering/feeding Section 4 is blocked on the same editor, since no
-course has any OB data yet to render (the schema supports it; nothing populates it).
+**⚠️ STILL PARTIALLY MET — the editor now EXISTS, but no one has used it.**
+Every hole's UI shows data quality (done). Maple Hill has NOT been re-measured —
+the tool to do it now exists, but actually clicking through 18 holes against
+satellite imagery + the caddie book is human work this session can't do by
+itself (and couldn't visually verify even if it tried — no Mapbox token here).
+OB rendering exists (the edit-mode overlay draws polygons live while editing),
+but OB does not yet FEED Section 4 — `analyzeCollision` doesn't consume
+`hole.obPolygons` yet, so "feeds Section 4" remains a real gap, now blocked on
+new collision-analysis work rather than on the editor.
 
 **Model:** **Sonnet 5** for the editor and importer. **Haiku 4.5** for the data
 grunt work (re-entering hole data, migrating the 10 existing courses to schema v2).
-**Schema v2 + importer done on Sonnet 5 this session. The in-app editor — the
-largest item — and the Haiku 4.5 data-entry pass are both still outstanding.**
-Estimated size: 2 sessions Sonnet, Haiku as needed. **Actual so far: 1 Sonnet
-session (schema v2 + importer); editor is unstarted.**
+**Schema v2, importer, AND the in-app editor are all done on Sonnet 5.** The
+Haiku 4.5 data-entry pass (actually re-measuring the 17 courses through the
+editor) is the one item genuinely left, and it's real human/data work, not
+more code to write.
+Estimated size: 2 sessions Sonnet, Haiku as needed. **Actual: 2 Sonnet sessions
+(schema v2 + importer, then the editor); Haiku data-entry pass not started.**
 
 ---
 
