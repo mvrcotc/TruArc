@@ -307,8 +307,11 @@ export default function App() {
     const handleUseObserved = useCallback(() => {
         if (!observedWeather) return;
         setWind({
-            speed: Math.round(observedWeather.windSpeedMps * 2) / 2, // slider step
-            direction: Math.round(observedWeather.windFromDeg / 5) * 5,
+            // Rounded to the slider's own step and clamped to its range, so
+            // "Use" always lands on a value the slider can represent —
+            // otherwise the thumb pins to the end and the next drag jumps.
+            speed: Math.min(15, Math.round(observedWeather.windSpeedMps * 2) / 2),
+            direction: Math.round(observedWeather.windFromDeg / 5) * 5 % 360,
         });
     }, [observedWeather]);
 

@@ -277,9 +277,25 @@ export function projectPathToChart(path, opts = {}) {
         // cut in half. Callers label the axis with the resulting span, so
         // the caption stays a true statement about the axis bounds.
         headroom = 1.12,
+        // ── THE CAP ON HORIZONTAL EXAGGERATION ───────────────────────
+        // Fitting a 60 m drive into 130 px of height while its 11 m of
+        // lateral movement fills 268 px of width stretches the lateral axis by
+        // over 5×, and the honest arc a disc really flies gets drawn as a
+        // hairpin — a shape no disc has ever made. Players read the
+        // PICTURE, not the caption, so an uncapped stretch makes the
+        // chart lie about the one thing it exists to show.
+        //
+        // Some stretch is unavoidable and every published flight chart
+        // uses it: at true scale that same flight is a nearly straight
+        // vertical line. 2.5× keeps the curve legible while keeping its
+        // shape recognisably the shape the disc flies. Returned as
+        // `stretchX` so the caller can state it.
+        maxStretch = 2.5,
     } = opts;
 
-    if (!path || path.length === 0) return { points: [], lateralSpanM: minLateralSpanM, downrangeM: 0 };
+    if (!path || path.length === 0) {
+        return { points: [], lateralSpanM: minLateralSpanM, downrangeM: 0, stretchX: 1 };
+    }
 
     let maxAbsLateral = 0;
     let maxDownrange = 0;
@@ -289,12 +305,29 @@ export function projectPathToChart(path, opts = {}) {
         if (p.downrangeM > maxDownrange) maxDownrange = p.downrangeM;
     }
 
-    const lateralSpanM = Math.max(maxAbsLateral * headroom, minLateralSpanM);
     const downrangeSpanM = Math.max(maxDownrange, 1);
 
     const innerW = width - padX * 2;
     const innerH = height - padY * 2;
     const cx = width / 2;
+
+    // Widening the axis is what REDUCES the stretch: the same lateral
+    // metres then occupy fewer pixels. Solving
+    //   (innerW/2)/lateralSpan ≤ maxStretch · innerH/downrangeSpan
+    // for lateralSpan gives the floor below.
+    const spanForMaxStretch = maxStretch > 0
+        ? (innerW / 2) * downrangeSpanM / (maxStretch * innerH)
+        : 0;
+
+    const lateralSpanM = Math.max(
+        maxAbsLateral * headroom,
+        minLateralSpanM,
+        spanForMaxStretch,
+    );
+
+    // What the drawing actually came out at — never above maxStretch, and
+    // below it whenever the flight is wide enough to need the room.
+    const stretchX = ((innerW / 2) / lateralSpanM) / (innerH / downrangeSpanM);
 
     const points = path.map((p) => ({
         x: cx + (p.lateralM / lateralSpanM) * (innerW / 2),
@@ -302,7 +335,7 @@ export function projectPathToChart(path, opts = {}) {
         y: height - padY - (p.downrangeM / downrangeSpanM) * innerH,
     }));
 
-    return { points, lateralSpanM, downrangeM: maxDownrange };
+    return { points, lateralSpanM, downrangeM: maxDownrange, stretchX };
 }
 
 /**

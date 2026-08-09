@@ -119,9 +119,20 @@ export default function WeatherPanel({
                                 value={wind?.speed ?? 0}
                                 onChange={(v) => onUpdateWind({ ...wind, speed: v })}
                                 min={0}
-                                max={20}
+                                max={15}
                                 step={0.5}
                                 unit="m/s"
+                                // Both the observation and this slider are the
+                                // wind at 10 m — the height every weather
+                                // service reports at. The engine shears it down
+                                // to the altitude the disc actually flies
+                                // through, so the disc feels roughly 70 % of
+                                // this near the ground. Saying so stops the
+                                // number reading as "wind at disc height",
+                                // which would make every flight look
+                                // over-blown. 15 m/s is already a near gale;
+                                // above that nobody is playing.
+                                hint="at 10 m — the disc flies lower, where it's weaker"
                             />
                             <WindSlider
                                 label="From"
@@ -235,7 +246,7 @@ function ObservedRow({ observed, state, usingObserved, onRefresh, onUseObserved 
 
 // ─── CONTROLS ────────────────────────────────────────────────────────
 
-function WindSlider({ label, value, onChange, min, max, step, unit }) {
+function WindSlider({ label, value, onChange, min, max, step, unit, hint }) {
     const pct = ((value - min) / (max - min)) * 100;
     return (
         <div>
@@ -246,6 +257,9 @@ function WindSlider({ label, value, onChange, min, max, step, unit }) {
                     <span className="text-truarc-muted/60 ml-0.5">{unit}</span>
                 </span>
             </div>
+            {hint && (
+                <div className="text-micro text-truarc-muted/45 -mt-1 mb-1.5 leading-tight">{hint}</div>
+            )}
             <input
                 type="range"
                 min={min}

@@ -215,8 +215,14 @@ export function DiscProfileChart({ disc, profile }) {
                     <text x={8} y={CHART_H + 11} fill="#98a1b5" fillOpacity="0.6" fontSize="10" fontFamily="monospace">
                         ←{lateralSpanFt.toFixed(0)}ft
                     </text>
+                    {/* The stretch factor belongs ON the chart, not in the
+                        note below it: the note scrolls away and players read
+                        the picture, not the prose. Centre of the caption
+                        strip is the one zone provably free of the curve —
+                        every throw starts at bottom-centre and the strip sits
+                        below the plot entirely. */}
                     <text x={CHART_W / 2} y={CHART_H + 11} fill="#98a1b5" fillOpacity="0.6" fontSize="10" fontFamily="monospace" textAnchor="middle">
-                        TEE
+                        TEE · {top.stretchX.toFixed(1)}× wide
                     </text>
                     <text x={CHART_W - 8} y={CHART_H + 11} fill="#98a1b5" fillOpacity="0.6" fontSize="10" fontFamily="monospace" textAnchor="end">
                         {lateralSpanFt.toFixed(0)}ft→
@@ -295,7 +301,9 @@ export function DiscProfileDetail({ disc, profile }) {
                 {profile.isReferenceThrow
                     ? 'Reference throw — flat, full power, no wind. The disc\'s own character, comparable across discs.'
                     : 'Your current throw settings and wind. Aim angle is excluded — it rotates the flight rather than reshaping it.'}
-                {' '}Chart is stretched sideways to fit; the figures are exact.
+                {' '}Lateral movement is drawn wider than scale to stay legible (the
+                factor is on the chart); the figures are exact. Wind is the
+                10 m reported value — the disc flies lower, where it is weaker.
             </p>
         </motion.div>
     );

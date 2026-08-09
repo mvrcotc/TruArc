@@ -33,6 +33,7 @@ import {
     projectPathToChart, projectPathToHeightChart, toPolylinePoints,
     CHART_DIMS,
 } from '../../src/physics/discProfile.js';
+import { windProfileFactor } from '../../src/physics/sixDof.js';
 import { DISC_DATABASE } from '../../src/data/discs.js';
 import { buildWindSpec } from '../../src/physics/throwerProfile.js';
 
@@ -400,8 +401,51 @@ describe('projectPathToChart', () => {
     });
 
     test('honours the minimum lateral span even when the path barely deviates', () => {
-        const { lateralSpanM } = projectPathToChart(straightish, { minLateralSpanM: 7.5 });
+        // With the stretch cap switched off, the floor is the binding
+        // constraint — this is the original guarantee, that 5 cm of drift
+        // is never normalized to the full chart width.
+        const { lateralSpanM } = projectPathToChart(straightish, {
+            minLateralSpanM: 7.5,
+            maxStretch: 0,
+        });
         assert.equal(lateralSpanM, 7.5);
+    });
+
+    test('caps horizontal exaggeration so an arc is never drawn as a hairpin', () => {
+        // The floor alone bounded only the WORST case. A real 60 m drive
+        // with 11 m of lateral movement was still being drawn at >5×
+        // horizontal stretch, which turns the arc a disc actually flies
+        // into a hairpin no disc has ever made. Players read the picture,
+        // not the caption.
+        const arc = [
+            { lateralM: 0, downrangeM: 0, heightM: 1.4 },
+            { lateralM: 8, downrangeM: 30, heightM: 6 },
+            { lateralM: 4, downrangeM: 50, heightM: 4 },
+            { lateralM: -11, downrangeM: 60, heightM: 0 },
+        ];
+        const { stretchX, lateralSpanM } = projectPathToChart(arc, {
+            width: 288, height: 150, maxStretch: 2.5,
+        });
+        assert.ok(stretchX <= 2.5 + 1e-9, `stretch ${stretchX} exceeds the cap`);
+        // The cap works by WIDENING the axis, so the axis must have grown
+        // past the flight's own extent rather than clipping it.
+        assert.ok(lateralSpanM > 11, `axis ${lateralSpanM} clips the widest point`);
+    });
+
+    test('a flight wide enough to need the room is not padded past the cap', () => {
+        // The cap is a ceiling, not a target: a genuinely wide flight
+        // should use the width it needs and report a stretch BELOW the cap
+        // rather than being inflated up to it.
+        const veryWide = [
+            { lateralM: 0, downrangeM: 0, heightM: 1.4 },
+            { lateralM: 45, downrangeM: 30, heightM: 6 },
+            { lateralM: -40, downrangeM: 55, heightM: 0 },
+        ];
+        const { stretchX } = projectPathToChart(veryWide, {
+            width: 288, height: 150, maxStretch: 2.5,
+        });
+        assert.ok(stretchX < 2.5, `stretch ${stretchX} should fall below the cap`);
+        assert.ok(stretchX > 0, 'stretch must be a positive ratio');
     });
 
     test('scales to the real lateral extent once it exceeds the floor, with headroom', () => {
@@ -589,5 +633,95 @@ describe('toPolylinePoints', () => {
 
     test('an empty projection produces an empty string, not "undefined"', () => {
         assert.equal(toPolylinePoints([]), '');
+    });
+});
+
+/**
+ * ── WIND SHEAR ───────────────────────────────────────────────────────
+ * Weather services report wind at the WMO standard height of 10 m. A
+ * disc golf flight lives between the release height (~1.4 m) and an apex
+ * of a few metres. Applying the reported number uniformly blows the disc
+ * with a wind it never meets, and the error is worst at release — where
+ * the disc is fastest and α is most sensitive to an airspeed change.
+ *
+ * The symptom that sent us looking: a Destroyer in the panel's own wind
+ * slider flipped from a clean fade to a hard turn-over hairpin somewhere
+ * around 10 m/s, because the engine was flying it through a 10 m wind at
+ * 2 m altitude.
+ */
+describe('wind shear (logarithmic surface layer)', () => {
+    test('the reported wind is recovered exactly at the reference height', () => {
+        assert.ok(Math.abs(windProfileFactor(10) - 1) < 1e-12);
+    });
+
+    test('a disc at flight altitude feels markedly less than the reported wind', () => {
+        const atRelease = windProfileFactor(1.4);
+        const atApex = windProfileFactor(3.2);
+        assert.ok(atRelease > 0.5 && atRelease < 0.75,
+            `release-height factor ${atRelease} outside the physical band`);
+        assert.ok(atApex > atRelease, 'wind must increase with height');
+        assert.ok(atApex < 1, 'below 10 m the wind must stay below the reported value');
+    });
+
+    test('wind keeps increasing above the reference height', () => {
+        // A high hyzer-flip spends its apex up where the wind is stronger;
+        // clamping at 1.0 would understate that.
+        assert.ok(windProfileFactor(20) > 1);
+    });
+
+    test('the mean wind vanishes inside the roughness sublayer', () => {
+        assert.equal(windProfileFactor(0.05), 0);
+        assert.equal(windProfileFactor(0), 0);
+        assert.equal(windProfileFactor(-1), 0);
+    });
+
+    test('z0 <= 0 is the explicit no-shear escape hatch', () => {
+        // Lets a caller (or a regression test) recover the old uniform-wind
+        // behaviour exactly, rather than approximating it.
+        assert.equal(windProfileFactor(1.4, 0), 1);
+        assert.equal(windProfileFactor(50, 0), 1);
+    });
+
+    test('shear leaves a calm flight untouched', () => {
+        const disc = { speed: 12, glide: 5, turn: -1, fade: 3 };
+        const settings = { power: 80, aimAngle: 0, releaseAngle: 0, noseAngle: 2 };
+        const calm = computeDiscProfile(disc, { throwSettings: settings });
+        const zeroWind = computeDiscProfile(disc, {
+            throwSettings: settings, wind: { speed: 0, direction: 90 },
+        });
+        assert.ok(Math.abs(calm.distanceM - zeroWind.distanceM) < 1e-9);
+    });
+
+    test('a strong headwind no longer flips an overstable driver into a hairpin', () => {
+        // A Destroyer (12/5/-1/3) is overstable. Into a strong headwind it
+        // flies flatter and finishes left — harder, if anything. What it
+        // must NOT do is cross the tee line and hook right, which is what
+        // the unsheared 10 m wind produced.
+        const disc = { speed: 12, glide: 5, turn: -1, fade: 3 };
+        const settings = { power: 80, aimAngle: 0, releaseAngle: 0, noseAngle: 2 };
+        const strong = computeDiscProfile(disc, {
+            throwSettings: settings,
+            wind: { speed: 11.5, direction: 0 },
+            throwBearingDeg: 0,
+        });
+        assert.ok(strong.lateralFinishM < 0,
+            `an overstable driver must finish left, got ${strong.lateralFinishFt.toFixed(0)} ft`);
+        assert.ok(strong.maxRightM < 3,
+            `excursion right of the tee line was ${strong.maxRightFt.toFixed(0)} ft`);
+    });
+
+    test('shear reduces the wind\'s effect without erasing it', () => {
+        // The fix must not become "wind does nothing" — that would trade
+        // one wrong answer for another.
+        const disc = { speed: 7, glide: 5, turn: -2, fade: 1 };
+        const settings = { power: 80, aimAngle: 0, releaseAngle: 0, noseAngle: 2 };
+        const calm = computeDiscProfile(disc, { throwSettings: settings });
+        const windy = computeDiscProfile(disc, {
+            throwSettings: settings,
+            wind: { speed: 8, direction: 0 },
+            throwBearingDeg: 0,
+        });
+        assert.ok(Math.abs(windy.lateralFinishM - calm.lateralFinishM) > 1,
+            'an 8 m/s headwind must still visibly change the flight');
     });
 });
