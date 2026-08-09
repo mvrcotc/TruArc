@@ -14,10 +14,10 @@ import {
     measure3DDistance,
     smoothBezierCurve,
 } from '../utils/flightPhysics';
-import { simulateDiscFlightAsync } from '../physics/flightEngine';
+import { simulateDiscFlightAsync, loadCourseCollisionData, clearCourseCollisionData } from '../physics/flightEngine';
 import { buildTerrainProfile } from '../physics/terrainProfile';
 import { courseToGeoJSON } from '../data/courses';
-import { applyOffsetToGeoJSON, applyOffsetToTrees, applyOffsetToPointCloud } from '../utils/calibrationOffset';
+import { applyOffsetToGeoJSON, applyOffsetToTrees, applyOffsetToPointCloud, applyOffsetToVoxelHeader } from '../utils/calibrationOffset';
 import TreeLayer from '../map/TreeLayer';
 import PointCloudLayer from '../map/PointCloudLayer';
 import { decodePointCloud } from '../map/pointCloudFormat';
@@ -43,6 +43,7 @@ const MapCanvas = forwardRef(({ onMeasure, onFlightComplete, onMove, selectedDis
     const treeLayerCourseIdRef = useRef(null);
     const pointCloudLayerRef = useRef(null);
     const pointCloudLayerCourseIdRef = useRef(null);
+    const collisionCourseIdRef = useRef(null);
 
     // ─── EXPOSE METHODS ─────────────────────────────────────────
     useImperativeHandle(ref, () => ({
@@ -346,20 +347,30 @@ const MapCanvas = forwardRef(({ onMeasure, onFlightComplete, onMove, selectedDis
                 throwSettings || { power: 80, aimAngle: 0, releaseAngle: 0, noseAngle: 12 },
                 wind || { speed: 0, direction: 0 },
                 terrainProfile,
+                { origin: tee, bearingDeg: bearing },
             );
 
             // A newer throw started while this one was in flight — drop it.
             if (throwRequestIdRef.current !== myRequestId) return;
             if (!mapRef.current) return; // unmounted while awaiting
 
-            // Convert to WGS84
+            // Convert to WGS84. When the worker registered a collision hit,
+            // flightResult.points is already truncated at the contact point
+            // (plus a short kick) — see collision.js's truncateTrajectoryAtHit
+            // — so this naturally draws the flight stopping at the tree.
             const wgs84Points = trajectoryToWGS84(flightResult.points, tee, bearing);
+            const { collision } = flightResult;
 
-            // Draw flight path
+            // Draw flight path — red when this throw hit a tree (Section 4),
+            // the default accent color otherwise.
             try {
-                drawFlightPath(map, wgs84Points);
+                drawFlightPath(map, wgs84Points, collision);
             } catch (layerErr) {
                 console.error("Flight path drawing error:", layerErr);
+            }
+
+            if (collision?.hit && collision.firstContact) {
+                addMarker(map, { lng: collision.firstContact.lng, lat: collision.firstContact.lat }, 'HIT', '#ff3366');
             }
 
             // Mark landing
@@ -651,7 +662,21 @@ const MapCanvas = forwardRef(({ onMeasure, onFlightComplete, onMove, selectedDis
         });
     }
 
-    function drawFlightPath(map, wgs84Points) {
+    // Section 4's per-clearance gradient (the roadmap's "path segments
+    // colored by clearance") would need clearance sampled at every
+    // rendered vertex of the POST-Bezier-smoothed curve below, which
+    // doesn't correspond 1:1 to the collision-space samples analyzeCollision
+    // actually measured — a faithful version needs its own resampling
+    // pass and is left for a follow-up. This ships the binary, always-
+    // accurate signal the analysis already gives for free: the whole
+    // path (and its landing markers) render in an alert color the moment
+    // a throw registers a hit, since a hit path is by construction
+    // truncated right at the obstacle (see truncateTrajectoryAtHit) —
+    // there's no "clean" portion after that point to distinguish.
+    const FLIGHT_PATH_COLOR = '#00e5ff';
+    const FLIGHT_PATH_HIT_COLOR = '#ff3366';
+
+    function drawFlightPath(map, wgs84Points, collision) {
         const smooth = smoothBezierCurve(
             wgs84Points.map((p) => ({ x: p.lng, y: p.altitude, z: p.lat })),
             200,
@@ -660,12 +685,15 @@ const MapCanvas = forwardRef(({ onMeasure, onFlightComplete, onMove, selectedDis
         // [lng, lat]
         const coordinates = smooth.map((p) => [p.x, p.z]);
         const id = 'flight-path';
+        const color = collision?.hit ? FLIGHT_PATH_HIT_COLOR : FLIGHT_PATH_COLOR;
 
         if (map.getSource(id)) {
             map.getSource(id).setData({
                 type: 'Feature',
                 geometry: { type: 'LineString', coordinates },
             });
+            map.setPaintProperty(`${id}-glow`, 'line-color', color);
+            map.setPaintProperty(`${id}-layer`, 'line-color', color);
         } else {
             map.addSource(id, {
                 type: 'geojson',
@@ -681,7 +709,7 @@ const MapCanvas = forwardRef(({ onMeasure, onFlightComplete, onMove, selectedDis
                 type: 'line',
                 source: id,
                 paint: {
-                    'line-color': '#00e5ff',
+                    'line-color': color,
                     'line-width': 8,
                     'line-blur': 6,
                     'line-opacity': 0.3,
@@ -694,7 +722,7 @@ const MapCanvas = forwardRef(({ onMeasure, onFlightComplete, onMove, selectedDis
                 type: 'line',
                 source: id,
                 paint: {
-                    'line-color': '#00e5ff',
+                    'line-color': color,
                     'line-width': 3,
                     'line-opacity': 0.9,
                 },
@@ -928,6 +956,57 @@ const MapCanvas = forwardRef(({ onMeasure, onFlightComplete, onMove, selectedDis
         // already removes the layer explicitly when courseId changes.
         return () => ac.abort();
     }, [mapLoaded, activeCourse?.id, activeCourse?.center?.lng, activeCourse?.center?.lat, calibrationOffset]);
+
+    // ─── COLLISION DATA (Section 4) ────────────────────────────────
+    //
+    // Loads the course's voxel occupancy grid + tree inventory into the
+    // flight-sim worker (see flightEngine.js/worker.js/collision.js) so
+    // every subsequent throw gets checked for tree collisions. Does not
+    // touch the map itself (no mapLoaded gate) — the worker exists
+    // independently of Mapbox.
+    useEffect(() => {
+        const courseId = activeCourse?.id;
+
+        if (collisionCourseIdRef.current !== courseId) {
+            clearCourseCollisionData();
+            collisionCourseIdRef.current = courseId;
+        }
+        if (!courseId) return undefined;
+
+        const ac = new AbortController();
+        const offset = calibrationOffset || { dLng: 0, dLat: 0, dElev: 0 };
+
+        Promise.all([
+            fetch(`/lidar/${courseId}_voxels_header.json`, { signal: ac.signal }).then((res) => {
+                if (!res.ok) throw new Error(`Not found (${res.status})`);
+                return res.json();
+            }),
+            fetch(`/lidar/${courseId}_voxels.bin`, { signal: ac.signal }).then((res) => {
+                if (!res.ok) throw new Error(`Not found (${res.status})`);
+                return res.arrayBuffer();
+            }),
+            fetch(`/lidar/${courseId}_trees.json`, { signal: ac.signal })
+                .then((res) => (res.ok ? res.json() : { trees: [] }))
+                .catch(() => ({ trees: [] })),
+        ])
+            .then(([voxelHeader, voxelBuffer, treesData]) => {
+                if (ac.signal.aborted) return;
+                const shiftedHeader = applyOffsetToVoxelHeader(voxelHeader, offset);
+                const shiftedTrees = applyOffsetToTrees(treesData.trees || [], offset);
+                loadCourseCollisionData(shiftedHeader, voxelBuffer, shiftedTrees);
+            })
+            .catch((err) => {
+                if (err.name === 'AbortError') return;
+                // Most courses don't have a processed voxel grid yet
+                // (Section 2's pipeline hasn't been run against real
+                // LiDAR for them) — expected, not an error; collision
+                // detection is simply unavailable until it has.
+                console.info(`No LiDAR voxel grid for "${courseId}" (${err.message}); collision detection unavailable.`);
+                clearCourseCollisionData();
+            });
+
+        return () => ac.abort();
+    }, [activeCourse?.id, calibrationOffset]);
 
     // ─── "TRUE VIEW" POINT CLOUD (Section 3, step 4) ──────────────
     //

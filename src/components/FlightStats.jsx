@@ -5,6 +5,7 @@
 import React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Target, ArrowDown, ArrowUp, Ruler, Mountain, Zap, Timer, Flag, Navigation, MapPin } from 'lucide-react';
+import { measure3DDistance } from '../utils/flightPhysics';
 
 export default function FlightStats({ flightData, measurement, mode, activeHole, activeCourse, onFlyToLanding }) {
     return (
@@ -200,6 +201,7 @@ function MeasurementDisplay({ measurement }) {
 function FlightDisplay({ data, onFlyToLanding }) {
     const distFt = data.totalDistance * 3.28084;
     const maxHeightFt = data.maxHeight * 3.28084;
+    const collision = data.collision;
 
     return (
         <motion.div
@@ -210,7 +212,7 @@ function FlightDisplay({ data, onFlyToLanding }) {
             className="glass-panel p-3 min-w-[240px]"
         >
             <div className="flex items-center gap-2 mb-3">
-                <Target size={14} className="text-truarc-green" />
+                <Target size={14} className={collision?.hit ? 'text-truarc-warn' : 'text-truarc-green'} />
                 <span className="cad-text">Flight Results</span>
             </div>
 
@@ -245,6 +247,11 @@ function FlightDisplay({ data, onFlyToLanding }) {
                 />
             </div>
 
+            {/* Collision readout (Section 4) — only rendered when the
+                course has a processed voxel grid loaded; a course
+                without one simply carries no `collision` field. */}
+            {collision && <CollisionReadout collision={collision} origin={data.origin} />}
+
             {/* Landing + Fly to landing */}
             {data.landing && (
                 <div className="mt-3 pt-2 border-t border-truarc-border/30 flex items-center justify-between gap-2">
@@ -262,6 +269,51 @@ function FlightDisplay({ data, onFlyToLanding }) {
                 </div>
             )}
         </motion.div>
+    );
+}
+
+// ─── COLLISION READOUT (Section 4) ──────────────────────────────
+
+function CollisionReadout({ collision, origin }) {
+    if (collision.hit && collision.firstContact) {
+        // "First tree at 182 ft" — docs/ACCURACY_ROADMAP.md §4's own
+        // example phrasing. `origin` is the tee point MapCanvas already
+        // passes through onFlightComplete; contact carries lng/lat/altitude
+        // in the same WGS84 shape measure3DDistance expects.
+        const contactDistFt = origin
+            ? measure3DDistance(origin, {
+                lng: collision.firstContact.lng,
+                lat: collision.firstContact.lat,
+                elevation: collision.firstContact.altitude,
+            }).distanceFt
+            : null;
+        return (
+            <div className="mt-3 pt-2 border-t border-truarc-border/30">
+                <div className="flex items-center gap-1.5 text-[11px] font-mono font-semibold" style={{ color: '#ff3366' }}>
+                    <Target size={11} />
+                    <span>
+                        {contactDistFt != null ? `First tree at ${contactDistFt.toFixed(0)} ft` : 'Tree contact'}
+                        {collision.firstContact.treeIndex != null ? ` (tree #${collision.firstContact.treeIndex})` : ' (unattributed)'}
+                    </span>
+                </div>
+            </div>
+        );
+    }
+
+    if (collision.clearanceFt == null) return null;
+
+    const tight = collision.clearanceFt < 5;
+    const close = collision.clearanceFt < 15;
+    const color = tight ? '#ff3366' : close ? '#ff6b35' : '#00ff88';
+
+    return (
+        <div className="mt-3 pt-2 border-t border-truarc-border/30 flex items-center justify-between">
+            <span className="cad-label">Clearance</span>
+            <span className="font-mono font-bold text-xs" style={{ color }}>
+                {collision.clearanceFt.toFixed(1)} ft
+                {collision.gapValidated && <span className="ml-1.5 text-truarc-muted font-normal">— gap validated</span>}
+            </span>
+        </div>
     );
 }
 

@@ -1,15 +1,15 @@
 /**
- * Tests for the two calibration-offset helpers added alongside
- * TreeLayer/PointCloudLayer this session — applyOffsetToTrees and
- * applyOffsetToPointCloud. (The pre-existing GeoJSON/single-coordinate
- * functions in this module predate this test file and are exercised
- * indirectly through the app; not backfilled here to keep scope to what
- * changed.)
+ * Tests for the calibration-offset helpers added alongside
+ * TreeLayer/PointCloudLayer (applyOffsetToTrees, applyOffsetToPointCloud)
+ * and, for Section 4, applyOffsetToVoxelHeader. (The pre-existing
+ * GeoJSON/single-coordinate functions in this module predate this test
+ * file and are exercised indirectly through the app; not backfilled here
+ * to keep scope to what changed.)
  */
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { applyOffsetToTrees, applyOffsetToPointCloud } from '../../src/utils/calibrationOffset.js';
+import { applyOffsetToTrees, applyOffsetToPointCloud, applyOffsetToVoxelHeader } from '../../src/utils/calibrationOffset.js';
 
 describe('applyOffsetToTrees', () => {
     const trees = [
@@ -85,5 +85,59 @@ describe('applyOffsetToPointCloud', () => {
         const decoded = fakeDecoded();
         const result = applyOffsetToPointCloud(decoded, undefined);
         assert.equal(result, decoded);
+    });
+});
+
+describe('applyOffsetToVoxelHeader', () => {
+    function fakeHeader() {
+        return {
+            origin: [261191.4393269105, 4684538.24189523, 137.0],
+            cellM: 1.0,
+            dims: [4, 3, 5],
+            workingCrs: 'EPSG:32619',
+            georeference: {
+                originLng: -71.896,
+                originLat: 42.2765,
+                xAxisBearingDeg: 88.044,
+                yAxisBearingDeg: 358.058,
+            },
+        };
+    }
+
+    test('shifts georeference.originLng/originLat and origin[2] (altitude) by the offset', () => {
+        const header = fakeHeader();
+        const offset = { dLng: 0.001, dLat: -0.0005, dElev: 2.5 };
+        const shifted = applyOffsetToVoxelHeader(header, offset);
+        assert.ok(Math.abs(shifted.georeference.originLng - (-71.896 + 0.001)) < 1e-12);
+        assert.ok(Math.abs(shifted.georeference.originLat - (42.2765 - 0.0005)) < 1e-12);
+        assert.ok(Math.abs(shifted.origin[2] - 139.5) < 1e-9);
+    });
+
+    test('leaves working-CRS origin[0]/origin[1] and axis bearings untouched', () => {
+        const header = fakeHeader();
+        const shifted = applyOffsetToVoxelHeader(header, { dLng: 1, dLat: 1, dElev: 1 });
+        assert.equal(shifted.origin[0], header.origin[0]);
+        assert.equal(shifted.origin[1], header.origin[1]);
+        assert.equal(shifted.georeference.xAxisBearingDeg, header.georeference.xAxisBearingDeg);
+        assert.equal(shifted.georeference.yAxisBearingDeg, header.georeference.yAxisBearingDeg);
+    });
+
+    test('does not mutate the input header', () => {
+        const header = fakeHeader();
+        const original = JSON.parse(JSON.stringify(header));
+        applyOffsetToVoxelHeader(header, { dLng: 5, dLat: 5, dElev: 5 });
+        assert.deepEqual(header, original);
+    });
+
+    test('returns the same object reference when the offset is a no-op zero offset', () => {
+        const header = fakeHeader();
+        const result = applyOffsetToVoxelHeader(header, { dLng: 0, dLat: 0, dElev: 0 });
+        assert.equal(result, header);
+    });
+
+    test('handles a missing offset object and a null header as a no-op', () => {
+        const header = fakeHeader();
+        assert.equal(applyOffsetToVoxelHeader(header, undefined), header);
+        assert.equal(applyOffsetToVoxelHeader(null, { dLng: 1, dLat: 1, dElev: 1 }), null);
     });
 });

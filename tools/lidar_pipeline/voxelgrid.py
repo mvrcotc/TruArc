@@ -25,6 +25,8 @@ from pathlib import Path
 
 import numpy as np
 
+from .geometry import bearing_deg
+
 
 @dataclass(frozen=True)
 class VoxelGridHeader:
@@ -59,6 +61,48 @@ class VoxelGridHeader:
         if 0 <= ix < self.nx and 0 <= iy < self.ny and 0 <= iz < self.nz:
             return ix, iy, iz
         return None
+
+
+def compute_georeference(header: VoxelGridHeader, baseline_m: float = 100.0) -> dict:
+    """
+    Characterizes the grid's origin and axis orientation in WGS84 terms,
+    so Section 4's JS collision code can convert a flight trajectory
+    point's lng/lat directly into grid-local (x,y) metres WITHOUT
+    needing any reprojection library in the browser — only bearing +
+    distance math already used throughout the app (see
+    geometry.bearing_deg's docstring).
+
+    WHY THIS IS NECESSARY, NOT JUST THOROUGH: `working_crs` (a UTM zone,
+    typically) is locally flat, but its +X/+Y axes are NOT exactly
+    east/north — they're rotated from true north by the projection's
+    convergence angle, which grows with distance from the projection's
+    central meridian. At Maple Hill's longitude this measures out to
+    about 2 degrees (verified against both this exact bearing
+    computation and the independent textbook convergence-angle formula
+    γ ≈ Δλ·sin(φ), which agree to within 0.01°). Two degrees sounds
+    small; over a 300 m fairway it's ~10 m of lateral error — well
+    past the width of a tree's crown. Ignoring it wouldn't just be
+    imprecise, it would misplace every collision check.
+
+    Returns {originLng, originLat, xAxisBearingDeg, yAxisBearingDeg}.
+    `baseline_m` (100 m) is large enough for a numerically stable
+    bearing estimate yet far below course scale, so the local-flatness
+    assumption underlying `bearing_deg` stays valid over it.
+    """
+    import pyproj
+
+    to_wgs84 = pyproj.Transformer.from_crs(header.working_crs, "EPSG:4326", always_xy=True)
+    ox, oy = header.origin_x, header.origin_y
+    origin_lng, origin_lat = to_wgs84.transform(ox, oy)
+    x_lng, x_lat = to_wgs84.transform(ox + baseline_m, oy)
+    y_lng, y_lat = to_wgs84.transform(ox, oy + baseline_m)
+
+    return {
+        "originLng": origin_lng,
+        "originLat": origin_lat,
+        "xAxisBearingDeg": bearing_deg(origin_lng, origin_lat, x_lng, x_lat),
+        "yAxisBearingDeg": bearing_deg(origin_lng, origin_lat, y_lng, y_lat),
+    }
 
 
 def build_voxel_grid(veg_x: np.ndarray, veg_y: np.ndarray, veg_z: np.ndarray,
@@ -134,7 +178,8 @@ def unpack_voxel_grid(data: bytes, nx: int, ny: int, nz: int) -> np.ndarray:
 
 def write_voxel_grid(header: VoxelGridHeader, occupied: np.ndarray, bin_path: Path | str, header_path: Path | str) -> None:
     Path(bin_path).write_bytes(pack_voxel_grid(occupied))
-    Path(header_path).write_text(json.dumps(header.to_dict(), separators=(",", ":")))
+    payload = {**header.to_dict(), "georeference": compute_georeference(header)}
+    Path(header_path).write_text(json.dumps(payload, separators=(",", ":")))
 
 
 def read_voxel_grid(bin_path: Path | str, header_path: Path | str) -> tuple[VoxelGridHeader, np.ndarray]:

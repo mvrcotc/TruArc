@@ -128,6 +128,42 @@ export function applyOffsetToPointCloud(decoded, offset) {
 }
 
 /**
+ * Apply a calibration offset to a voxel-grid header JSON
+ * (voxelgrid.py's `write_voxel_grid` output — origin/dims/cellM plus a
+ * `georeference` block; see src/physics/voxelGridFormat.js). Shifts the
+ * SAME (dLng, dLat, dElev) applied to trees/point-cloud, so a hit-tested
+ * flight trajectory (which is never itself calibration-shifted — it
+ * comes from a real map click, not derived LiDAR) lines up with
+ * wherever the calibrated trees actually render.
+ *
+ * Only `georeference.originLng/originLat` (used by `worldToGridXY` to
+ * convert a real-world lng/lat into grid-local metres) and `origin[2]`
+ * (the grid's absolute-altitude Z origin, the same quantity
+ * `ground_elev_m` represents for trees) need shifting — the working-CRS
+ * `origin[0]/origin[1]` metres and the axis bearings are untouched: they
+ * only fix collision-space's numeric frame and the grid's rotation, both
+ * independent of where in true lng/lat/altitude that frame sits.
+ */
+export function applyOffsetToVoxelHeader(headerJson, offset) {
+    if (!headerJson) return headerJson;
+    const dLng = offset?.dLng || 0;
+    const dLat = offset?.dLat || 0;
+    const dElev = offset?.dElev || 0;
+    if (dLng === 0 && dLat === 0 && dElev === 0) return headerJson;
+
+    const [ox, oy, oz] = headerJson.origin;
+    return {
+        ...headerJson,
+        origin: [ox, oy, oz + dElev],
+        georeference: {
+            ...headerJson.georeference,
+            originLng: headerJson.georeference.originLng + dLng,
+            originLat: headerJson.georeference.originLat + dLat,
+        },
+    };
+}
+
+/**
  * Nudge offset by a step size (meters → degrees conversion)
  * @param {Object} currentOffset - Current offset
  * @param {'lng'|'lat'|'elev'} axis

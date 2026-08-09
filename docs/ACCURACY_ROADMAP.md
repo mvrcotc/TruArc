@@ -516,23 +516,95 @@ makes obstacles *play*.
 1. `src/physics/collision.js`: sample the simulated trajectory (~0.5 m steps) against
    (a) the voxel grid — authoritative, includes gaps — and (b) the tree inventory as
    capsules/lathed profiles for attributing *which* tree was hit.
+   **✅ DONE, IMPROVED ON THE LITERAL SPEC for (a)** — the voxel-grid hit/no-hit check
+   uses exact Amanatides-Woo grid traversal (`traverseSegmentVoxels`), not fixed
+   ~0.5 m sampling: sampling can jump clean over a 1 m cell at a shallow grazing
+   angle, exact traversal can't. Tie-breaking at cell boundaries advances every
+   axis tied for the next crossing simultaneously (a synthetic 45°-diagonal-through-
+   a-shared-corner test regresses this — see `collision.test.mjs`). The literal
+   "~0.5 m steps" IS used as specified for (b), the secondary tree-capsule
+   clearance/attribution pass (`resamplePolyline` + `attributeTreeAtHit`), which
+   uses a constant-radius vertical-cylinder capsule per tree (conservative — never
+   narrower than the true tapered crown at any height) rather than the full lathed
+   profile.
+   New coordinate-frame piece this required: the voxel grid's `origin`/`cellM` are
+   in working-CRS (UTM-like) metres whose +X/+Y axes are rotated from true
+   east/north by the projection's convergence angle (~2° at Maple Hill's longitude,
+   ~10 m of error over a 300 m fairway if ignored). `voxelgrid.compute_georeference()`
+   (Python) measures this via bearing math and ships it in the header JSON;
+   `src/physics/voxelGridFormat.js` (JS) consumes it to build `worldToGridXY`,
+   verified end-to-end against a real Python-generated fixture (13 tests). A real
+   bug was caught and fixed here: `worldToGridXY` returns coordinates 0-based from
+   the grid's origin, but the pre-existing, already-tested `cellAt()` (and this
+   session's `traverseSegmentVoxels`) expect the SAME absolute working-CRS frame as
+   `header.originX/Y/Z` — `toCollisionSpace`/`toCapsule` add the origin back to
+   reconcile the two conventions.
 2. Outputs per throw: first-contact point + tree, clearance margin (min distance to
    vegetation along the path), "gap validated" boolean, list of near-misses (< 2 m).
+   **✅ DONE** — `analyzeCollision()`'s return shape: `{hit, firstContact: {lng, lat,
+   altitude, pointIndex, t, treeIndex}, clearanceM, clearanceFt, gapValidated,
+   nearMisses: [{treeIndex, distanceM, distanceFt}]}`. `gapValidated` is defined as
+   `!hit` (the voxel grid is authoritative for hit/no-hit; clearance/near-misses are
+   a separate, continuous capsule-distance reading the boolean voxel field can't
+   give on its own). Tree attribution honestly returns `null` when no capsule
+   explains a hit within tolerance — Section 2's segmentation doesn't have 100%
+   recall, so an unattributed hit is a real, expected outcome.
 3. Flight behavior on hit: truncate flight at contact with a short randomized drop
    (kick model can stay simple — a hit is a hit for planning purposes).
+   **✅ DONE** — `truncateTrajectoryAtHit()`. Reuses `firstContact.pointIndex`/`t`
+   directly against the LOCAL-frame trajectory (not collision space) — valid
+   because `trajectoryToWGS84` maps points 1:1 with no resampling, so segment index
+   and interpolation fraction are frame-independent; documented as a load-bearing
+   invariant in the code rather than left implicit.
 4. UI (`FlightStats.jsx`, `MapCanvas.jsx`): "First tree at 182 ft", clearance readout,
    red marker at contact, path segments colored by clearance; OB-crossing warnings
    once Section 5 provides OB polygons.
+   **✅ DONE, ONE ITEM SCOPED DOWN** — "First tree at N ft" and a clearance readout
+   (color-graded by tightness) are in `FlightStats.jsx`; a red `HIT` marker at the
+   contact point and the flight path itself switching to an alert color on a hit
+   are in `MapCanvas.jsx`. "Path segments colored by clearance" (a continuous
+   per-vertex gradient) is NOT implemented — the smoothed, rendered curve's
+   vertices don't correspond 1:1 to the collision-space samples `analyzeCollision`
+   measured, so a faithful version needs its own resampling pass; scoped down to a
+   binary alert-color path instead, which is exact (a hit path is, by construction,
+   truncated right at the obstacle — there's no "clean" portion after that point to
+   distinguish) and flagged in-code as a follow-up rather than silently dropped.
+   OB-crossing warnings correctly deferred to Section 5 (no OB polygons exist yet).
 5. Runs in the same Web Worker as the sim; voxel grid transferred once per course as
    an ArrayBuffer.
+   **✅ DONE** — `flightEngine.loadCourseCollisionData()` transfers the voxel-grid
+   ArrayBuffer into the worker once per course (`MapCanvas.jsx`'s new effect, on
+   `activeCourse.id`/`calibrationOffset` change); the worker caches it in module
+   state and runs `analyzeCollision` + truncation inline with every throw that
+   carries `origin`/`bearingDeg`. Calibration offsets apply to the voxel grid's
+   georeference the same way they already applied to trees/point-cloud
+   (`applyOffsetToVoxelHeader`, new) — otherwise a calibrated map would show trees
+   in one place and collide against them in another.
 
 **Acceptance:** On Maple Hill hole 2, a full-power Destroyer on the wrong line hits a
 tree in the sim; the documented correct line (straight mid on the tunnel) validates
 clean. Randomized trajectories never pass through voxels marked occupied.
+**⚠️ NOT YET VERIFIED against real Maple Hill data** — no processed voxel grid/tree
+inventory exists for Maple Hill yet (Section 2's pipeline hasn't been run against
+real LiDAR for any course in this environment; same standing gap already noted for
+Section 3's tree rendering). What IS verified: the traversal algorithm itself
+against a real Python-packed fixture and hand-constructed hit/clean/tangent/corner
+cases (46 tests across `voxelGridFormat.test.mjs` + `collision.test.mjs`), all
+passing, plus full regression across every pre-existing suite (Python 129/129,
+JS invariants/integration/map/utils/collision all green; `npm run build` succeeds
+with the worker bundle staying small — collision.js pulls in no GL/DOM
+dependencies). "Randomized trajectories never pass through voxels marked
+occupied" is a property `traverseSegmentVoxels`' exhaustive-cell-coverage design
+guarantees by construction (see point 1 above), not something re-verified via
+literal Monte Carlo sampling in this pass.
 
 **Model:** **Sonnet 5** for all of it, with a one-shot **Opus 5** review pass on the
 ray/capsule/voxel-traversal math (Amanatides-Woo grid traversal is easy to get subtly
 wrong at cell boundaries).
+**Sonnet 5's implementation is done; the Opus 5 review pass on
+`traverseSegmentVoxels`/`raySegmentVsCylinder`-equivalent capsule math is still
+outstanding** — flagged here rather than skipped, per the roadmap's own model
+assignment.
 Estimated size: 1–2 sessions Sonnet.
 
 ---

@@ -29,6 +29,27 @@ def meters_per_deg_lng(lat_deg: float) -> float:
     return METERS_PER_DEG_LAT * math.cos(math.radians(lat_deg))
 
 
+def bearing_deg(lng0: float, lat0: float, lng1: float, lat1: float) -> float:
+    """
+    Initial bearing (degrees, clockwise from north) from point 0 to
+    point 1, using the SAME flat-earth approximation as the rest of the
+    app (src/utils/flightPhysics.js's METERS_PER_DEG_LAT, src/data/
+    courses.js's basketFromTee, src/map/mercatorTransform.js) — not a
+    geodesic formula. Deliberate: a "more correct" great-circle bearing
+    would silently disagree with every other bearing this codebase
+    computes, at course-scale distances where the flat-earth error is
+    already negligible relative to that inconsistency. Used by
+    voxelgrid.compute_georeference() to characterize how far a working
+    CRS's local axes have rotated from true north (UTM convergence) —
+    see that function for why this matters more than it sounds like it
+    should.
+    """
+    lat_mid = (lat0 + lat1) / 2
+    dx = (lng1 - lng0) * meters_per_deg_lng(lat_mid)
+    dy = (lat1 - lat0) * METERS_PER_DEG_LAT
+    return math.degrees(math.atan2(dx, dy)) % 360
+
+
 @dataclass(frozen=True)
 class BBox:
     """WGS84 bounding box. min/max are (lng, lat) — matches GeoJSON [minX, minY, maxX, maxY]."""

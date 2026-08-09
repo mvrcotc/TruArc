@@ -29,6 +29,20 @@
  * Workers cannot call Mapbox. Callers build a `terrainProfile` on the
  * main thread first via `buildTerrainProfile()` in terrainProfile.js and
  * pass it in; this module does not touch Mapbox at all.
+ *
+ * ── COLLISION DETECTION (Section 4) ──────────────────────────────────
+ * `loadCourseCollisionData()` sends the course's voxel grid + tree
+ * inventory to the worker ONCE (the ArrayBuffer is transferred, not
+ * cloned — the caller's copy is neutered after this call, matching
+ * standard Transferable semantics), where it's cached until the next
+ * `loadCourseCollisionData`/`clearCourseCollisionData` call. Every
+ * subsequent `simulateDiscFlightAsync` call that passes `options.origin`
+ * then gets its result's trajectory checked against that cached data —
+ * see worker.js. There is no same-thread (no-Worker-environment)
+ * equivalent: collision detection is worker-only, same as the rest of
+ * this module's design already assumes a real browser Worker for the
+ * cases that matter (see `runSameThread`'s own fallback-of-last-resort
+ * framing below).
  */
 
 import { buildThrowSpec, DEFAULT_THROWER } from './throwerProfile.js';
@@ -47,6 +61,10 @@ function getWorker() {
         worker = new Worker(new URL('./worker.js', import.meta.url), { type: 'module' });
         worker.onmessage = (event) => {
             const { requestId, ok, result, error } = event.data;
+            // loadCourseCollisionData's ack ({type:'collisionDataLoaded', ...},
+            // no requestId) intentionally falls through here unhandled — it's
+            // fire-and-forget; a course without voxel data yet degrades to
+            // "no collision detection", not an error worth surfacing per-call.
             const p = pending.get(requestId);
             if (!p) return;
             pending.delete(requestId);
@@ -72,13 +90,21 @@ function getWorker() {
  * @param {Object} throwParamsUI - existing UI shape: { power, aimAngle, releaseAngle, noseAngle }
  * @param {Object} wind - { speed, direction } (legacy naming, matches existing callers)
  * @param {Object} terrainProfile - from buildTerrainProfile(), or null for flat ground
- * @param {Object} [options] - { engine: 'sixdof' | 'legacy' } overrides the stored A/B flag
- * @returns {Promise<{points, landingIndex, maxHeight, totalDistance, flightTimeS}>}
+ * @param {Object} [options] - { engine: 'sixdof' | 'legacy',
+ *   origin: {lng,lat,elevation}, bearingDeg: number } — origin/bearingDeg
+ *   are the SAME tee/bearing values callers already pass to
+ *   `trajectoryToWGS84` for drawing the flight path; supplying them here
+ *   too is what lets the worker run collision detection (see
+ *   `loadCourseCollisionData`) against the exact same WGS84 line.
+ *   Omitting them simply skips collision detection for that throw.
+ * @returns {Promise<{points, landingIndex, maxHeight, totalDistance, flightTimeS, collision?}>}
  */
 export async function simulateDiscFlightAsync(disc, throwParamsUI, wind, terrainProfile, options = {}) {
     const engine = options.engine ?? getEngineChoice();
     const requestId = nextRequestId++;
     const message = buildMessage(requestId, engine, disc, throwParamsUI, wind, terrainProfile);
+    message.origin = options.origin ?? null;
+    message.bearingDeg = options.bearingDeg ?? 0;
 
     const w = getWorker();
     if (w) {
@@ -88,6 +114,29 @@ export async function simulateDiscFlightAsync(disc, throwParamsUI, wind, terrain
         });
     }
     return runSameThread(message);
+}
+
+/**
+ * Loads a course's voxel occupancy grid + tree inventory into the
+ * worker for collision detection. `voxelHeader` is the parsed
+ * `{course}_voxels_header.json`, `voxelBuffer` the raw
+ * `{course}_voxels.bin` ArrayBuffer (transferred — do not reuse it after
+ * this call), `trees` the raw `{course}_trees.json`'s `trees` array.
+ * Returns false (a no-op) when no Worker is available in this
+ * environment — collision detection is simply unavailable then, same as
+ * any other worker-only feature degrading gracefully.
+ */
+export function loadCourseCollisionData(voxelHeader, voxelBuffer, trees) {
+    const w = getWorker();
+    if (!w) return false;
+    w.postMessage({ type: 'loadCollisionData', voxelHeader, voxelBuffer, trees }, [voxelBuffer]);
+    return true;
+}
+
+/** Clears any loaded collision data (e.g. on course change / unmount). */
+export function clearCourseCollisionData() {
+    const w = getWorker();
+    if (w) w.postMessage({ type: 'clearCollisionData' });
 }
 
 function buildMessage(requestId, engine, disc, throwParamsUI, wind, terrainProfile) {
