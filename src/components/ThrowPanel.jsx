@@ -24,11 +24,12 @@
  * "dangerous" than another.
  */
 
-import React, { useState, useMemo, useRef, useEffect } from 'react';
+import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Disc3, ChevronDown, Wind, Gauge, Briefcase, Search, Plus, X } from 'lucide-react';
+import { Disc3, ChevronDown, Wind, Gauge, Briefcase, Search, Plus, X, RotateCcw } from 'lucide-react';
 import { DISC_DATABASE } from '../utils/flightPhysics';
+import { DEFAULT_THROW_SETTINGS } from '../physics/throwerProfile';
 import { FlightResultsSection } from './FlightStats';
 import { DiscProfileSection } from './DiscProfilePanel';
 
@@ -48,9 +49,27 @@ export default function ThrowPanel({
     flightData, onFlyToLanding,
 }) {
     const [showWind, setShowWind] = useState(false);
+    // Collapsed by default: a player picks one disc and then works the
+    // sliders, so an always-open bag list mostly serves to push the
+    // flight chart off-screen. See the layout comment below.
+    const [showBag, setShowBag] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
     const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: 0, width: 0 });
     const searchInputRef = useRef(null);
+
+    // Aim is included here even though the flight CHART ignores it (it
+    // rotates rather than reshapes the flight): Reset is about the
+    // sliders the player touched, and the map does honour aim.
+    const throwIsModified = useMemo(
+        () => Object.keys(DEFAULT_THROW_SETTINGS)
+            .some((k) => throwSettings?.[k] !== DEFAULT_THROW_SETTINGS[k]),
+        [throwSettings],
+    );
+
+    const handleResetThrow = useCallback(
+        () => onUpdateThrow({ ...DEFAULT_THROW_SETTINGS }),
+        [onUpdateThrow],
+    );
 
     // Update dropdown position when search is active - use rAF to ensure layout is complete
     useEffect(() => {
@@ -194,117 +213,58 @@ export default function ThrowPanel({
                 )}
             </div>
 
-            {/* Scrollable content below */}
+            {/* Scrollable content, ordered by how a throw actually
+                unfolds and by what a player looks at most:
+                  1. the selected disc + its live flight chart
+                  2. the settings that reshape that chart
+                  3. the results of the throw just taken
+                  4. the bag — LAST and collapsed by default, because a
+                     player picks one disc and then spends their time on
+                     the sliders; keeping an 18-disc list permanently
+                     expanded pushed the chart off-screen for the 95% of
+                     the session where nobody is switching discs. */}
             <div className="flex-1 overflow-y-auto min-h-0 flex flex-col gap-3 custom-scrollbar">
 
-                {/* Selected Disc — compact header card. Identity + numbers,
-                    no competing color block per stat. */}
-                {selectedDisc && (
-                    <motion.div layout className="glass-panel-sm p-3">
-                        <div className="flex justify-between items-start">
-                            <div className="min-w-0">
-                                <div className="flex items-center gap-1.5">
-                                    <div className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: TYPE_COLORS[selectedDisc.type] }} />
-                                    <span className="text-truarc-text font-semibold text-body truncate">{selectedDisc.name}</span>
-                                </div>
-                                <div className="cad-label mt-0.5 normal-case tracking-normal">{selectedDisc.brand} · {selectedDisc.type}</div>
-                            </div>
-                            <button
-                                onClick={() => removeFromBag(selectedDisc)}
-                                className="text-micro px-2 py-1 rounded-md text-truarc-muted/70 hover:text-truarc-danger hover:bg-truarc-danger/[0.08] transition-colors duration-150"
-                            >
-                                Remove
-                            </button>
-                        </div>
-
-                        {/* Flight Numbers — one voice, mono, neutral */}
-                        <div className="grid grid-cols-4 gap-1.5 mt-2.5">
-                            {[
-                                { label: 'Speed', value: selectedDisc.speed },
-                                { label: 'Glide', value: selectedDisc.glide },
-                                { label: 'Turn', value: selectedDisc.turn },
-                                { label: 'Fade', value: selectedDisc.fade },
-                            ].map(({ label, value }) => (
-                                <div key={label} className="text-center rounded-lg bg-white/[0.03] py-1.5">
-                                    <div className="font-mono text-sm font-semibold text-truarc-text tabular-nums leading-none">{value}</div>
-                                    <div className="text-micro text-truarc-muted/60 mt-1">{label}</div>
-                                </div>
-                            ))}
-                        </div>
-                    </motion.div>
+                {/* Selected disc + live flight chart. This is the thing
+                    the panel exists to show, so it sits at the top and is
+                    visible at all times. */}
+                {selectedDisc ? (
+                    <DiscProfileSection
+                        disc={selectedDisc}
+                        throwSettings={throwSettings}
+                        wind={wind}
+                    />
+                ) : (
+                    <div className="flex flex-col items-center justify-center py-8 rounded-xl border border-dashed border-white/[0.07] text-truarc-muted/50">
+                        <Disc3 size={20} className="mb-2 opacity-60" />
+                        <div className="text-body">No disc selected</div>
+                        <div className="text-micro mt-1 text-truarc-muted/40">Search above to add one</div>
+                    </div>
                 )}
 
-                {/* My Bag */}
-                <div className="flex flex-col gap-1">
-                    <div className="flex items-center gap-2 py-0.5">
-                        <Briefcase size={12} className="text-truarc-muted/70" />
-                        <span className="cad-label">Bag ({myBag.length})</span>
-                    </div>
-                    {myBag.length === 0 ? (
-                        <div className="flex flex-col items-center justify-center py-7 rounded-xl border border-dashed border-white/[0.07] text-truarc-muted/50">
-                            <Briefcase size={18} className="mb-2 opacity-60" />
-                            <div className="text-body">Your bag is empty</div>
-                            <div className="text-micro mt-1 text-truarc-muted/40">Search above to add discs</div>
-                        </div>
-                    ) : (
-                        DISC_TYPES.map(type => {
-                            const discsInType = myBag.filter(d => d.type === type);
-                            if (discsInType.length === 0) return null;
-
-                            return (
-                                <div key={type} className="mb-1.5">
-                                    <div className="cad-label px-2 mb-1 opacity-70">
-                                        {type}
-                                    </div>
-                                    {discsInType.map(disc => {
-                                        const isSelected = selectedDisc && selectedDisc.brand === disc.brand && selectedDisc.name === disc.name;
-                                        return (
-                                            <div
-                                                key={`${disc.brand}-${disc.name}`}
-                                                className={`group flex items-center justify-between py-1.5 px-2 rounded-lg text-body transition-colors duration-100 mb-0.5 ${isSelected
-                                                    ? 'bg-truarc-accent/[0.09] text-truarc-text'
-                                                    : 'text-truarc-muted hover:text-truarc-text hover:bg-white/[0.04]'
-                                                    }`}
-                                            >
-                                                <button
-                                                    onClick={() => onSelectDisc(disc)}
-                                                    className="flex-1 flex items-center justify-between min-w-0 text-left"
-                                                >
-                                                    <div className="flex items-center gap-2 min-w-0">
-                                                        <div
-                                                            className={`w-1.5 h-1.5 rounded-full shrink-0 transition-opacity ${isSelected ? '' : 'opacity-60'}`}
-                                                            style={{ background: TYPE_COLORS[type] }}
-                                                        />
-                                                        <span className={`truncate ${isSelected ? 'font-semibold' : 'font-medium'}`}>{disc.name}</span>
-                                                    </div>
-                                                    <span className="font-mono text-micro opacity-50 shrink-0 ml-2 tabular-nums">
-                                                        {disc.speed}/{disc.glide}/{disc.turn}/{disc.fade}
-                                                    </span>
-                                                </button>
-                                                <button
-                                                    onClick={(e) => { e.stopPropagation(); removeFromBag(disc); }}
-                                                    className="opacity-0 group-hover:opacity-60 hover:!opacity-100 p-0.5 rounded text-truarc-muted hover:text-truarc-danger transition-all duration-100 shrink-0"
-                                                    title="Remove from bag"
-                                                >
-                                                    <X size={12} />
-                                                </button>
-                                            </div>
-                                        );
-                                    })}
-                                </div>
-                            );
-                        })
-                    )}
-                </div>
-
-                {/* Divider */}
-                <div className="cad-divider" />
-
                 {/* Throw Settings */}
+                <div className="cad-divider" />
                 <div>
-                    <div className="flex items-center gap-2 mb-2.5">
-                        <Gauge size={14} className="text-truarc-muted/70" />
-                        <span className="cad-text">Throw Settings</span>
+                    <div className="flex items-center justify-between gap-2 mb-2.5">
+                        <div className="flex items-center gap-2 min-w-0">
+                            <Gauge size={14} className="text-truarc-muted/70" />
+                            <span className="cad-text">Throw Settings</span>
+                        </div>
+                        {/* Escape hatch: the chart above reacts to every
+                            slider, so it is easy to wander somewhere
+                            strange and lose the baseline. Only offered
+                            when something actually differs, so it is not
+                            a permanently-dead control. */}
+                        {throwIsModified && (
+                            <button
+                                onClick={handleResetThrow}
+                                title="Reset power, aim, release and nose to the app default"
+                                className="flex items-center gap-1 text-micro font-medium px-2 py-1 rounded-md text-truarc-accent bg-truarc-accent/[0.08] hover:bg-truarc-accent/[0.16] active:scale-[0.97] transition-all duration-150 shrink-0"
+                            >
+                                <RotateCcw size={11} />
+                                Reset
+                            </button>
+                        )}
                     </div>
 
                     <div className="flex flex-col gap-3.5">
@@ -343,7 +303,7 @@ export default function ThrowPanel({
                     </div>
                 </div>
 
-                {/* Wind Toggle */}
+                {/* Wind */}
                 <div className="cad-divider" />
                 <button
                     onClick={() => setShowWind(!showWind)}
@@ -391,12 +351,9 @@ export default function ThrowPanel({
                     )}
                 </AnimatePresence>
 
-                {/* Flight Results — appears once the current disc has
-                    actually been thrown. Ordered right after setup
-                    (bag/settings/wind) since it's the outcome of that
-                    setup, and above the reference profile since "what
-                    just happened" outranks "what this disc does in
-                    general" for a player checking back after a throw. */}
+                {/* Flight Results — only once this disc has actually been
+                    thrown. Above the bag because "what just happened"
+                    matters more than disc management. */}
                 {flightData && (
                     <>
                         <div className="cad-divider" />
@@ -404,15 +361,94 @@ export default function ThrowPanel({
                     </>
                 )}
 
-                {/* Disc reference profile — always available once a disc
-                    is selected, regardless of whether it's been thrown
-                    yet this session. */}
-                {selectedDisc && (
-                    <>
-                        <div className="cad-divider" />
-                        <DiscProfileSection disc={selectedDisc} />
-                    </>
-                )}
+                {/* Bag — last, and collapsed by default. Expanding is one
+                    click and the count stays visible while collapsed, so
+                    nothing is hidden, just folded away. */}
+                <div className="cad-divider" />
+                <div className="flex flex-col gap-1">
+                    <button
+                        onClick={() => setShowBag(!showBag)}
+                        className="flex items-center gap-2 w-full py-1 group"
+                        aria-expanded={showBag}
+                    >
+                        <Briefcase size={14} className="text-truarc-muted/70" />
+                        <span className="cad-text group-hover:text-truarc-text transition-colors duration-150">
+                            Bag
+                        </span>
+                        <span className="font-mono text-micro text-truarc-muted/60 tabular-nums">
+                            {myBag.length}
+                        </span>
+                        <ChevronDown size={12} className={`ml-auto text-truarc-muted/60 transition-transform duration-200 ${showBag ? 'rotate-180' : ''}`} />
+                    </button>
+
+                    <AnimatePresence>
+                        {showBag && (
+                            <motion.div
+                                initial={{ height: 0, opacity: 0 }}
+                                animate={{ height: 'auto', opacity: 1 }}
+                                exit={{ height: 0, opacity: 0 }}
+                                transition={{ duration: 0.2, ease: 'easeOut' }}
+                                className="overflow-hidden"
+                            >
+                                {myBag.length === 0 ? (
+                                    <div className="flex flex-col items-center justify-center py-7 rounded-xl border border-dashed border-white/[0.07] text-truarc-muted/50">
+                                        <Briefcase size={18} className="mb-2 opacity-60" />
+                                        <div className="text-body">Your bag is empty</div>
+                                        <div className="text-micro mt-1 text-truarc-muted/40">Search above to add discs</div>
+                                    </div>
+                                ) : (
+                                    DISC_TYPES.map(type => {
+                                        const discsInType = myBag.filter(d => d.type === type);
+                                        if (discsInType.length === 0) return null;
+
+                                        return (
+                                            <div key={type} className="mb-1.5">
+                                                <div className="cad-label px-2 mb-1 opacity-70">
+                                                    {type}
+                                                </div>
+                                                {discsInType.map(disc => {
+                                                    const isSelected = selectedDisc && selectedDisc.brand === disc.brand && selectedDisc.name === disc.name;
+                                                    return (
+                                                        <div
+                                                            key={`${disc.brand}-${disc.name}`}
+                                                            className={`group flex items-center justify-between py-1.5 px-2 rounded-lg text-body transition-colors duration-100 mb-0.5 ${isSelected
+                                                                ? 'bg-truarc-accent/[0.09] text-truarc-text'
+                                                                : 'text-truarc-muted hover:text-truarc-text hover:bg-white/[0.04]'
+                                                                }`}
+                                                        >
+                                                            <button
+                                                                onClick={() => onSelectDisc(disc)}
+                                                                className="flex-1 flex items-center justify-between min-w-0 text-left"
+                                                            >
+                                                                <div className="flex items-center gap-2 min-w-0">
+                                                                    <div
+                                                                        className={`w-1.5 h-1.5 rounded-full shrink-0 transition-opacity ${isSelected ? '' : 'opacity-60'}`}
+                                                                        style={{ background: TYPE_COLORS[type] }}
+                                                                    />
+                                                                    <span className={`truncate ${isSelected ? 'font-semibold' : 'font-medium'}`}>{disc.name}</span>
+                                                                </div>
+                                                                <span className="font-mono text-micro opacity-50 shrink-0 ml-2 tabular-nums">
+                                                                    {disc.speed}/{disc.glide}/{disc.turn}/{disc.fade}
+                                                                </span>
+                                                            </button>
+                                                            <button
+                                                                onClick={(e) => { e.stopPropagation(); removeFromBag(disc); }}
+                                                                className="opacity-0 group-hover:opacity-60 hover:!opacity-100 p-0.5 rounded text-truarc-muted hover:text-truarc-danger transition-all duration-100 shrink-0"
+                                                                title="Remove from bag"
+                                                            >
+                                                                <X size={12} />
+                                                            </button>
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        );
+                                    })
+                                )}
+                            </motion.div>
+                        )}
+                    </AnimatePresence>
+                </div>
             </div>
         </div>
     );

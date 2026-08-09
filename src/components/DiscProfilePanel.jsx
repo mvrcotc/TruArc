@@ -19,21 +19,39 @@
  * only memoizes that call and draws SVG, so there is no simulation
  * behaviour here to test separately.
  *
- * ── THE REFERENCE THROW IS NOT THE USER'S THROW ──────────────────────
- * The chart is deliberately pinned to flat / full-power / no-wind so it
- * stays a property of the DISC and remains comparable across discs. It
- * must therefore never look like a preview of the current sliders — the
- * footer says so in as many words. The live throw's own results render
- * just above this section (ThrowPanel's FlightResultsSection).
+ * ── IT NOW TRACKS THE PLAYER'S SETTINGS, AND SAYS WHICH IT IS ────────
+ * This chart used to be pinned to a fixed reference throw (flat, full
+ * power, no wind) and deliberately ignored the sliders. It now
+ * simulates whatever the throw settings and wind actually say, so
+ * dragging a slider redraws the flight — that is the whole point of
+ * sitting beside those sliders.
+ *
+ * The two readings are still different CLAIMS and must never be
+ * conflated: the reference throw describes the DISC (comparable across
+ * discs, which is what the stability label is derived for), while this
+ * describes THIS THROW. `profile.isReferenceThrow` says which one is on
+ * screen and the footer states it in words. `ThrowPanel`'s "Reset"
+ * button returns the sliders to the app default so a player who has
+ * dragged things somewhere strange can get back to a known baseline.
+ *
+ * Aim angle is excluded on purpose — see `throwSpecFieldsFromUI` in
+ * discProfile.js. It rotates the whole flight rather than changing its
+ * shape, and the chart's vertical axis IS the aim line.
  *
  * ── THE CHART IS ANISOTROPIC, AND SAYS SO ────────────────────────────
  * A 350 ft drive with 45 ft of lateral movement cannot be drawn to scale
  * in a narrow rail. Lateral is stretched relative to downrange, the same
  * way every published flight chart does it. The axis captions carry the
  * true distances in feet so the numbers stay exact even though the
- * drawing is not to scale. The SVGs scale via viewBox + width:100%, so
- * they fill whatever column width they're given without distortion —
- * CHART_W/HEIGHT_W below only set the internal aspect ratio.
+ * drawing is not to scale.
+ *
+ * ── AND IT MUST FIT BESIDE THE SLIDERS ───────────────────────────────
+ * The SVGs render at `width:100%`, so a viewBox narrower than the column
+ * is magnified and the chart grows taller in proportion. Sizing the
+ * viewBox to the real column width (see CHART_DIMS in discProfile.js)
+ * keeps the rendered height equal to the declared height, which is what
+ * keeps the chart and the throw settings on screen together — the whole
+ * reason the chart sits here.
  *
  * NOT visually verified in a browser — this environment's egress policy
  * blocks api.mapbox.com, so the app shell renders but the map behind it
@@ -45,6 +63,7 @@ import { motion } from 'framer-motion';
 import { Disc3, TrendingUp, Ruler, Mountain } from 'lucide-react';
 import {
     computeDiscProfile, projectPathToChart, projectPathToHeightChart, toPolylinePoints,
+    CHART_DIMS,
 } from '../physics/discProfile';
 
 const TYPE_COLORS = {
@@ -54,27 +73,48 @@ const TYPE_COLORS = {
     'Putter': '#34d399',
 };
 
-const CHART_W = 212;
-const CHART_H = 232;          // plot area only
-const CHART_CAPTION_H = 15;   // caption strip BELOW the plot
-const HEIGHT_W = 212;
-const HEIGHT_H = 54;
+// Geometry lives in discProfile.js so tests assert against the shipped
+// values — see CHART_DIMS there for why w must equal the column width.
+const CHART_W = CHART_DIMS.w;
+const CHART_H = CHART_DIMS.h;
+const CHART_CAPTION_H = CHART_DIMS.captionH;
+const HEIGHT_W = CHART_DIMS.heightW;
+const HEIGHT_H = CHART_DIMS.heightH;
 
-export function DiscProfileSection({ disc }) {
-    // One ~6-7 ms simulation, recomputed only when the disc identity
-    // changes — not on every settings-slider frame, since the reference
-    // throw deliberately ignores the sliders.
+// Interactive fidelity: the chart now re-simulates on every slider
+// frame, so it runs coarser than the app's production throw — measured
+// 4.73 ms → 2.19 ms per call. That is only legitimate because the
+// integrator converges: distance is identical to the fine setting, and
+// `tests/physics/discProfile.test.mjs` asserts the two agree to within
+// a foot so this can't silently degrade. 90-odd points is still far
+// more than a 212px-wide polyline can show.
+const INTERACTIVE_SIM = { dt: 0.004, sampleEvery: 10 };
+
+export function DiscProfileSection({ disc, throwSettings, wind }) {
+    // Recomputed whenever the disc OR the throw changes — this chart is
+    // the live preview of the sliders sitting directly above it.
+    // Depends on primitives rather than the objects so an unrelated
+    // re-render that rebuilds an identical settings object doesn't pay
+    // for a fresh simulation.
     const profile = useMemo(() => {
         if (!disc) return null;
         try {
-            return computeDiscProfile(disc);
+            return computeDiscProfile(disc, {
+                throwSettings: throwSettings ?? undefined,
+                wind: wind ?? undefined,
+                simOptions: INTERACTIVE_SIM,
+            });
         } catch {
             // A disc with malformed numbers should cost the panel, not
             // the app. Rendering nothing is honest; a fabricated curve
             // would not be.
             return null;
         }
-    }, [disc?.name, disc?.brand, disc?.speed, disc?.glide, disc?.turn, disc?.fade]);
+    }, [
+        disc?.name, disc?.brand, disc?.speed, disc?.glide, disc?.turn, disc?.fade,
+        throwSettings?.power, throwSettings?.releaseAngle, throwSettings?.noseAngle,
+        wind?.speed, wind?.direction,
+    ]);
 
     if (!disc || !profile) return null;
 
@@ -236,10 +276,14 @@ export function DiscProfileSection({ disc }) {
                 />
             </div>
 
+            {/* Which claim is on screen. These are different statements —
+                one about the disc, one about this throw — and the panel
+                must never let them blur together. */}
             <p className="text-micro text-truarc-muted/45 leading-relaxed mt-2.5">
-                Reference throw — flat, full power, no wind. Independent of your
-                current throw settings. Chart is stretched sideways to fit; the
-                figures are exact.
+                {profile.isReferenceThrow
+                    ? 'Reference throw — flat, full power, no wind. This is the disc\'s own character, comparable across discs.'
+                    : 'Your current throw settings and wind. Aim angle is excluded — it rotates the flight rather than reshaping it.'}
+                {' '}Chart is stretched sideways to fit; the figures are exact.
             </p>
         </motion.div>
     );

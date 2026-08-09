@@ -8,6 +8,7 @@
 import React, { useState, useRef, useReducer, useCallback, useEffect } from 'react';
 import { getCalibrationOffset } from './utils/calibrationOffset';
 import { loadBag, saveBag, loadSelectedDisc, saveSelectedDisc } from './utils/discBag';
+import { DEFAULT_THROW_SETTINGS } from './physics/throwerProfile';
 import { useAuth } from './context/AuthContext';
 import { holeEditReducer, createEditState, EDIT_ACTIONS } from './editor/holeEditState';
 import { exportHoleEdit, importHoleEdit } from './editor/courseEditExport';
@@ -31,12 +32,11 @@ export default function App() {
     // ─── STATE ──────────────────────────────────────────────────
     const [mode, setMode] = useState('navigate'); // navigate | measure | throw | calibrate | course | edit
     const [viewState, setViewState] = useState({ bearing: 0, pitch: 60 });
-    const [throwSettings, setThrowSettings] = useState({
-        power: 80,
-        aimAngle: 0,
-        releaseAngle: 0,
-        noseAngle: 2,
-    });
+    // Shared with ThrowPanel's "Reset" button via DEFAULT_THROW_SETTINGS,
+    // so Reset provably returns the player to where they started rather
+    // than to a second, drifting copy of "default". Spread because the
+    // exported constant is frozen and this is mutable state.
+    const [throwSettings, setThrowSettings] = useState({ ...DEFAULT_THROW_SETTINGS });
     const [wind, setWind] = useState({ speed: 0, direction: 0 });
     const [measurement, setMeasurement] = useState(null);
     const [flightData, setFlightData] = useState(null);

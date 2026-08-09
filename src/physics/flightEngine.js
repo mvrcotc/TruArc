@@ -45,7 +45,7 @@
  * framing below).
  */
 
-import { buildThrowSpec, DEFAULT_THROWER } from './throwerProfile.js';
+import { buildThrowSpec, buildWindSpec, DEFAULT_THROWER } from './throwerProfile.js';
 import { discToCoefficients, ACTIVE_MAPPING, launchAngleDeg } from './discCoefficients.js';
 import { getEngineChoice } from './engineFlag.js';
 import { lookupElevation } from './terrainProfile.js';
@@ -152,6 +152,8 @@ function buildMessage(requestId, engine, disc, throwParamsUI, wind, terrainProfi
                 releaseAngle: throwParamsUI.releaseAngle,
                 noseAngle: throwParamsUI.noseAngle,
             },
+            // Legacy reads `wind.speed`/`wind.direction` — the UI's own
+            // shape — so it is passed through unconverted, deliberately.
             wind,
             terrainProfile,
         };
@@ -162,7 +164,18 @@ function buildMessage(requestId, engine, disc, throwParamsUI, wind, terrainProfi
         hyzerDeg: throwParamsUI.releaseAngle,
         launchAngleDeg: launchAngleDeg(ACTIVE_MAPPING),
     });
-    return { requestId, engine: 'sixdof', disc, params: throwSpec, wind, terrainProfile };
+    // 6-DOF reads `speedMps`/`directionDeg`. Passing the UI object
+    // through unconverted (as this did) made every 6-DOF throw a
+    // dead-calm one no matter where the wind sliders sat — see
+    // buildWindSpec's comment for the full account.
+    return {
+        requestId,
+        engine: 'sixdof',
+        disc,
+        params: throwSpec,
+        wind: buildWindSpec(wind),
+        terrainProfile,
+    };
 }
 
 /** Fallback used when a Worker cannot be constructed. Mirrors worker.js exactly. */
@@ -179,3 +192,10 @@ async function runSameThread(message) {
         coefficients: discToCoefficients(message.disc, ACTIVE_MAPPING),
     });
 }
+
+// Test-only surface, mirroring sixDof.js's `__internals` convention.
+// `buildMessage` is exported so the UI→engine wind/throw conversion can
+// be pinned at its actual CALL SITE: the wind bug this guards was a
+// wrong one-line call, not a wrong helper, so unit-testing the helper
+// alone would not have caught it.
+export const __internals = { buildMessage };

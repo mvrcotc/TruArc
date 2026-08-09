@@ -43,7 +43,7 @@
 
 import { simulateFlight } from './sixDof.js';
 import { discToCoefficients, ACTIVE_MAPPING, launchAngleDeg } from './discCoefficients.js';
-import { buildThrowSpec, DEFAULT_THROWER } from './throwerProfile.js';
+import { buildThrowSpec, buildWindSpec, DEFAULT_THROWER } from './throwerProfile.js';
 
 const METERS_TO_FEET = 3.28084;
 
@@ -51,6 +51,11 @@ const METERS_TO_FEET = 3.28084;
  * The canonical conditions a flight chart implies: flat release, full
  * power, no wind, flat ground, right-hand backhand (the reference every
  * published flight number is quoted for).
+ *
+ * Used when no `throwSettings` are supplied — which is what makes a
+ * bare `computeDiscProfile(disc)` still mean "this disc's inherent
+ * character", the comparable-across-discs reading the stability label
+ * and the test suite are written against.
  */
 export const REFERENCE_THROW = Object.freeze({
     powerPct: 100,
@@ -59,6 +64,28 @@ export const REFERENCE_THROW = Object.freeze({
     hand: 'RH',
     style: 'BH',
 });
+
+/**
+ * A UI throw (`{power, aimAngle, releaseAngle, noseAngle}`) → the
+ * throw-spec fields `buildThrowSpec` wants.
+ *
+ * ── AIM ANGLE IS DELIBERATELY IGNORED ────────────────────────────────
+ * Aim rotates the ENTIRE flight about the tee; it does not change the
+ * flight's shape. The chart's vertical axis IS the aim line, so folding
+ * aim in would rotate the curve against its own reference and read as
+ * "this disc turns more when I aim right", which is false. The map
+ * already shows the real aimed heading. Excluded on purpose, not
+ * forgotten.
+ */
+function throwSpecFieldsFromUI(ui) {
+    return {
+        powerPct: ui.power,
+        hyzerDeg: ui.releaseAngle,
+        noseAngleDeg: ui.noseAngle,
+        hand: REFERENCE_THROW.hand,
+        style: REFERENCE_THROW.style,
+    };
+}
 
 /**
  * Stability read off the manufacturer's numbers, the way players read
@@ -84,8 +111,13 @@ export function stabilityFromNumbers(disc) {
  * panel needs.
  *
  * @param {{speed,glide,turn,fade}} disc
- * @param {Object} [options] - { thrower, mapping, simOptions } — overrides
- *        for Section 6 (per-user thrower profiles) and for tests.
+ * @param {Object} [options] - {
+ *        throwSettings: UI `{power, aimAngle, releaseAngle, noseAngle}`
+ *          — omit for the canonical REFERENCE_THROW;
+ *        wind: UI `{speed, direction}` — omit for dead calm;
+ *        thrower, mapping, simOptions — overrides for Section 6
+ *          (per-user thrower profiles) and for tests.
+ *      }
  * @returns {{
  *   path: {lateralM, downrangeM, heightM}[],
  *   distanceM, distanceFt, apexM, apexFt,
@@ -94,12 +126,17 @@ export function stabilityFromNumbers(disc) {
  *   flightTimeS,
  *   stability: {key, label, color, sum},
  *   reference: typeof REFERENCE_THROW,
+ *   isReferenceThrow: boolean,
  * }}
  *
  * Lateral sign follows the engine's output frame: POSITIVE = right of
  * the tee line, NEGATIVE = left. For the RH backhand reference throw
  * that means a turn reads positive and a fade reads negative, so an
  * overstable disc finishes with `lateralFinishM < 0`.
+ *
+ * `isReferenceThrow` tells a caller whether what it got back is the
+ * disc's inherent character (comparable across discs) or this player's
+ * current settings — the two must never be presented as the same claim.
  */
 export function computeDiscProfile(disc, options = {}) {
     if (!disc || !Number.isFinite(disc.speed)) {
@@ -109,15 +146,27 @@ export function computeDiscProfile(disc, options = {}) {
     const mapping = options.mapping ?? ACTIVE_MAPPING;
     const thrower = options.thrower ?? DEFAULT_THROWER;
     const coefficients = discToCoefficients(disc, mapping);
+
+    const usingReference = !options.throwSettings;
+    const specFields = usingReference
+        ? REFERENCE_THROW
+        : throwSpecFieldsFromUI(options.throwSettings);
     const throwSpec = buildThrowSpec(thrower, disc, {
-        ...REFERENCE_THROW,
+        ...specFields,
         launchAngleDeg: launchAngleDeg(mapping),
     });
 
-    // No wind, no terrain callback (flat ground at 0) — the reference
-    // conditions. Anything else here would make the profile a property
-    // of the situation rather than of the disc.
-    const result = simulateFlight(disc, throwSpec, {}, null, {
+    // Wind must go through buildWindSpec: the engine reads
+    // `speedMps`/`directionDeg`, and handing it the UI's
+    // `{speed, direction}` silently simulates dead calm (the exact bug
+    // this codebase shipped in flightEngine.js — see that conversion's
+    // comment). No terrain callback: flat ground, so the chart stays a
+    // statement about the disc and the throw rather than about one
+    // particular hole's slope.
+    const wind = options.wind ? buildWindSpec(options.wind) : {};
+    const noWind = !(wind.speedMps > 0);
+
+    const result = simulateFlight(disc, throwSpec, wind, null, {
         ...(options.simOptions ?? {}),
         coefficients,
     });
@@ -155,8 +204,31 @@ export function computeDiscProfile(disc, options = {}) {
         flightTimeS: result.flightTimeS,
         stability: stabilityFromNumbers(disc),
         reference: REFERENCE_THROW,
+        isReferenceThrow: usingReference && noWind,
     };
 }
+
+/**
+ * Chart geometry, shared by DiscProfilePanel and its tests so the tests
+ * guard the dimensions actually shipped rather than a copy that can
+ * drift.
+ *
+ * `w` matches the panel's real inner column width (320px panel − 2×16px
+ * padding). That matters: the SVGs render at `width:100%`, so a viewBox
+ * narrower than the column gets scaled UP and the chart grows taller in
+ * proportion. A 212-wide viewBox in a 288px column was being magnified
+ * ~36%, which pushed the throw-settings sliders below the fold — the
+ * one thing this panel must not do, since the chart exists to be read
+ * WHILE those sliders are adjusted. Keeping w == the column width means
+ * the rendered height is exactly `h`, no arithmetic required.
+ */
+export const CHART_DIMS = Object.freeze({
+    w: 288,
+    h: 176,          // top-down plot area
+    captionH: 16,    // caption strip below the plot
+    heightW: 288,
+    heightH: 44,     // side-on altitude strip
+});
 
 /**
  * Project a profile's path into SVG viewBox coordinates for a top-down

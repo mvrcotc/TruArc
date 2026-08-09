@@ -31,6 +31,7 @@ import assert from 'node:assert/strict';
 import {
     computeDiscProfile, stabilityFromNumbers, REFERENCE_THROW,
     projectPathToChart, projectPathToHeightChart, toPolylinePoints,
+    CHART_DIMS,
 } from '../../src/physics/discProfile.js';
 import { DISC_DATABASE } from '../../src/data/discs.js';
 
@@ -184,6 +185,117 @@ describe('computeDiscProfile — structure and invariants', () => {
         // never silently rewrite a disc's advertised character.
         const p = computeDiscProfile(FIREBIRD);
         assert.equal(p.stability.label, stabilityFromNumbers(FIREBIRD).label);
+    });
+});
+
+// ─── LIVE THROW SETTINGS ─────────────────────────────────────────────
+
+describe('computeDiscProfile — throwSettings drive the flight', () => {
+    const flat = { power: 100, aimAngle: 0, releaseAngle: 0, noseAngle: 0 };
+
+    test('omitting throwSettings reproduces the reference throw exactly', () => {
+        // The chart's two readings must not drift apart: "no settings"
+        // has to be numerically identical to explicitly asking for the
+        // reference conditions, or the panel would show one number for
+        // the disc and a different one for the same throw.
+        const implicit = computeDiscProfile(DESTROYER);
+        const explicit = computeDiscProfile(DESTROYER, { throwSettings: flat });
+        assert.equal(implicit.distanceM, explicit.distanceM);
+        assert.equal(implicit.lateralFinishM, explicit.lateralFinishM);
+        assert.equal(implicit.apexM, explicit.apexM);
+    });
+
+    test('isReferenceThrow reports which QUESTION was asked, not whether answers coincide', () => {
+        // Settings that happen to equal the reference still describe the
+        // player's throw, not the disc's inherent character — the panel
+        // labels those differently on purpose.
+        assert.equal(computeDiscProfile(DESTROYER).isReferenceThrow, true);
+        assert.equal(computeDiscProfile(DESTROYER, { throwSettings: flat }).isReferenceThrow, false);
+    });
+
+    test('power changes the flight', () => {
+        const full = computeDiscProfile(DESTROYER, { throwSettings: flat });
+        const half = computeDiscProfile(DESTROYER, { throwSettings: { ...flat, power: 50 } });
+        assert.ok(half.distanceM < full.distanceM,
+            `half power flew ${half.distanceFt.toFixed(0)}ft vs ${full.distanceFt.toFixed(0)}ft at full`);
+    });
+
+    test('hyzer finishes further left, anhyzer further right', () => {
+        const hyzer = computeDiscProfile(DESTROYER, { throwSettings: { ...flat, releaseAngle: 20 } });
+        const anhyzer = computeDiscProfile(DESTROYER, { throwSettings: { ...flat, releaseAngle: -20 } });
+        // Engine output frame: +x is RIGHT of the tee line.
+        assert.ok(anhyzer.lateralFinishM < hyzer.lateralFinishM,
+            `anhyzer=${anhyzer.lateralFinishFt.toFixed(0)}ft hyzer=${hyzer.lateralFinishFt.toFixed(0)}ft`);
+    });
+
+    test('nose angle changes the flight', () => {
+        const flatNose = computeDiscProfile(DESTROYER, { throwSettings: flat });
+        const noseUp = computeDiscProfile(DESTROYER, { throwSettings: { ...flat, noseAngle: 10 } });
+        assert.ok(Math.abs(noseUp.distanceM - flatNose.distanceM) > 1,
+            'nose angle should visibly change the flight');
+    });
+
+    test('AIM angle does NOT change the flight — it rotates it, and the chart IS the aim line', () => {
+        // Documented exclusion in throwSpecFieldsFromUI. If aim ever
+        // leaks into the spec, the chart would read "this disc turns
+        // more when I aim right", which is false.
+        const straight = computeDiscProfile(DESTROYER, { throwSettings: flat });
+        const aimed = computeDiscProfile(DESTROYER, { throwSettings: { ...flat, aimAngle: 40 } });
+        assert.equal(aimed.distanceM, straight.distanceM);
+        assert.equal(aimed.lateralFinishM, straight.lateralFinishM);
+    });
+
+    test('coarser sim options do not move the answer (dt-convergence)', () => {
+        // The interactive chart runs at dt 0.004 / sampleEvery 10 to stay
+        // cheap enough for a slider drag. That is only legitimate because
+        // the engine converges — asserted here so a future dt change
+        // can't silently degrade the chart.
+        const fine = computeDiscProfile(DESTROYER, { throwSettings: flat });
+        const coarse = computeDiscProfile(DESTROYER, {
+            throwSettings: flat,
+            simOptions: { dt: 0.004, sampleEvery: 10 },
+        });
+        assert.ok(Math.abs(coarse.distanceFt - fine.distanceFt) < 1,
+            `coarse=${coarse.distanceFt.toFixed(2)}ft fine=${fine.distanceFt.toFixed(2)}ft`);
+        assert.ok(coarse.path.length > 20, 'coarse path still needs enough points to draw');
+    });
+});
+
+// ─── WIND ────────────────────────────────────────────────────────────
+
+describe('computeDiscProfile — wind', () => {
+    const flat = { power: 100, aimAngle: 0, releaseAngle: 0, noseAngle: 0 };
+
+    test('wind actually reaches the engine (regression: it silently did not)', () => {
+        // THE bug this guards: the engine reads `speedMps`/`directionDeg`
+        // and the UI hands it `{speed, direction}`, so an unconverted
+        // pass-through simulated dead calm at every wind setting. If
+        // buildWindSpec is ever dropped from this path, these become
+        // equal and this fails.
+        const calm = computeDiscProfile(DESTROYER, { throwSettings: flat, wind: { speed: 0, direction: 0 } });
+        const headwind = computeDiscProfile(DESTROYER, { throwSettings: flat, wind: { speed: 10, direction: 0 } });
+        assert.ok(Math.abs(headwind.distanceM - calm.distanceM) > 1,
+            `wind had no effect: calm=${calm.distanceFt.toFixed(0)}ft headwind=${headwind.distanceFt.toFixed(0)}ft`);
+    });
+
+    test('a headwind pushes the finish further right than a tailwind', () => {
+        // Direction-of-effect, not a magnitude claim: a headwind raises
+        // airspeed, which turns a disc over (rightward for RH backhand).
+        const head = computeDiscProfile(DESTROYER, { throwSettings: flat, wind: { speed: 8, direction: 0 } });
+        const tail = computeDiscProfile(DESTROYER, { throwSettings: flat, wind: { speed: 8, direction: 180 } });
+        assert.ok(head.lateralFinishM > tail.lateralFinishM,
+            `head=${head.lateralFinishFt.toFixed(0)}ft tail=${tail.lateralFinishFt.toFixed(0)}ft`);
+    });
+
+    test('omitted wind and explicit zero wind agree', () => {
+        const omitted = computeDiscProfile(DESTROYER, { throwSettings: flat });
+        const zero = computeDiscProfile(DESTROYER, { throwSettings: flat, wind: { speed: 0, direction: 0 } });
+        assert.equal(omitted.distanceM, zero.distanceM);
+    });
+
+    test('wind disqualifies a profile from claiming to be the reference throw', () => {
+        const windy = computeDiscProfile(DESTROYER, { wind: { speed: 8, direction: 0 } });
+        assert.equal(windy.isReferenceThrow, false);
     });
 });
 
@@ -354,8 +466,8 @@ describe('projectPathToHeightChart', () => {
         // which is exactly what shipped and had to be fixed. This pins
         // the corner that is actually safe, so a change to the apex
         // floor or release height fails here instead of in the UI.
-        const W = 212;
-        const H = 54;
+        const W = CHART_DIMS.heightW;
+        const H = CHART_DIMS.heightH;
         const padX = 10;
         const CAPTION_W = 56; // rendered width of the caption
         const CAPTION_H = 12;
@@ -367,6 +479,38 @@ describe('projectPathToHeightChart', () => {
                     `${disc.name}: curve enters the caption box at (${p.x.toFixed(1)}, ${p.y.toFixed(1)})`);
             }
         }
+    });
+});
+
+describe('CHART_DIMS', () => {
+    // The panel's whole purpose is being readable WHILE the throw
+    // sliders are dragged. The SVGs render at width:100%, so a viewBox
+    // narrower than the column is magnified and the chart grows taller
+    // in proportion — a 212-wide viewBox in the 288px column was
+    // magnified ~36% and pushed the sliders off-screen. These pin the
+    // geometry that keeps both on screen together.
+    const COLUMN_W = 288; // 320px panel − 2×16px padding
+
+    test('viewBox width equals the column width, so nothing is magnified', () => {
+        assert.equal(CHART_DIMS.w, COLUMN_W);
+        assert.equal(CHART_DIMS.heightW, COLUMN_W);
+    });
+
+    test('both charts together stay well under half the panel height', () => {
+        // Panel max-height is calc(100vh − 120px); at a 900px viewport
+        // that is 780px. Chart + captions + side strip must leave room
+        // for the search box, disc header, flight numbers, stats, and
+        // four sliders.
+        const rendered = CHART_DIMS.h + CHART_DIMS.captionH + CHART_DIMS.heightH;
+        assert.ok(rendered <= 260, `charts render ${rendered}px tall — sliders get pushed off-screen`);
+    });
+
+    test('the top-down plot stays tall enough to read a flight shape', () => {
+        assert.ok(CHART_DIMS.h >= 140, 'too short to distinguish an S-curve from a hook');
+    });
+
+    test('is frozen — component and tests must read the same numbers', () => {
+        assert.throws(() => { 'use strict'; CHART_DIMS.h = 999; });
     });
 });
 
