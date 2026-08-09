@@ -58,7 +58,14 @@ jobs:
       # Amanatides-Woo collision traversal. Exact math against a real
       # Python-packed fixture, not calibration judgment — blocking, same
       # as the invariants/integration suites above.
-      - name: Run collision & voxel-grid tests
+      #
+      # Also covers src/physics/discProfile.js (the disc reference-flight
+      # panel), which globs into the same tests/physics/ directory. Its
+      # assertions are structural — lateral sign convention, stability
+      # buckets, chart projection bounds — and hold regardless of where
+      # calibration lands, so they belong here rather than in the
+      # known-red envelope suite below.
+      - name: Run collision, voxel-grid & disc-profile tests
         run: npm run test:collision
 
       - name: Run flight envelope + comparative assertions

@@ -782,6 +782,21 @@ makes disc recommendations credible.
 3. Disc comparison overlay: simulate up to 3 bag discs from the same lie, colored
    paths + per-disc landing/clearance stats (directly feeds the "buy the disc that
    makes this line" moment in Section 7).
+   **⚠️ NOT DONE — but its physics groundwork landed early.**
+   `src/physics/discProfile.js` + `DiscProfilePanel.jsx` (right rail, throw mode)
+   render the SELECTED disc's *reference* flight: a top-down chart, a side-on
+   height strip, published flight numbers, and a stability read — computed by
+   running the real 6-DOF engine at fixed canonical conditions (flat, full
+   power, no wind) rather than drawing a decorative curve from turn/fade, so the
+   chart can never contradict what the simulation does on the map. That is a
+   *different question* from item 3 and does NOT satisfy it: this is one disc's
+   intrinsic character in the abstract, not N discs compared from a specific lie
+   with real terrain and clearance. What item 3 can reuse: `computeDiscProfile`,
+   the chart projection helpers, and the lateral sign convention (+x = right of
+   the tee line) now pinned by tests. The stability LABEL is deliberately derived
+   from the manufacturer's numbers, not the simulated path, so the engine's
+   known 13/35 calibration gap can't silently rewrite a disc's advertised
+   character. 32 tests, `tests/physics/discProfile.test.mjs`.
 4. Persist profile in Firestore per user (auth already exists).
 
 **Acceptance:** A user who enters 350 ft max sees their Destroyer land 330–360 ft on

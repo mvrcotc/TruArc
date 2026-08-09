@@ -19,6 +19,7 @@ import CalibrationPanel from './components/CalibrationPanel';
 import CourseManager from './components/CourseManager';
 import CourseEditorPanel from './components/CourseEditorPanel';
 import FlightStats from './components/FlightStats';
+import DiscProfilePanel from './components/DiscProfilePanel';
 import CourseSearch from './components/CourseSearch';
 import FloatingCompass from './components/FloatingCompass';
 
@@ -319,8 +320,11 @@ export default function App() {
                 </div>
             </div>
 
-            {/* Top Right: Stats (measure/flight/course) - out of direct view */}
-            <div className="absolute top-16 right-4 z-20 flex flex-col gap-2">
+            {/* Top Right: Stats (measure/flight/course) - out of direct view.
+                DiscProfilePanel stacks below them: the live throw's results on
+                top, the selected disc's REFERENCE flight underneath. The column
+                scrolls rather than overflowing on short viewports. */}
+            <div className="absolute top-16 right-4 z-20 flex flex-col gap-2 items-end max-h-[calc(100vh-88px)] overflow-y-auto custom-scrollbar pointer-events-auto">
                 <FlightStats
                     mode={mode}
                     flightData={flightData}
@@ -329,6 +333,9 @@ export default function App() {
                     activeCourse={activeCourse}
                     onFlyToLanding={handleFlyToLanding}
                 />
+                {mode === 'throw' && selectedDisc && (
+                    <DiscProfilePanel disc={selectedDisc} />
+                )}
             </div>
 
             {/* Floating Compass (Top Right, above stats) */}
