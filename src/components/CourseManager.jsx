@@ -357,6 +357,15 @@ function HoleCard({ hole, isActive, onClick }) {
                         >
                             Par {hole.par}
                         </span>
+                        {hole.dataQuality === 'estimated' && (
+                            <span
+                                className="text-[8px] font-mono px-1 py-0.5 rounded-full text-truarc-warn/80"
+                                style={{ background: '#ff6b3515' }}
+                                title="Basket position estimated from tee + distance + bearing, not measured GPS"
+                            >
+                                EST
+                            </span>
+                        )}
                     </div>
                     {hole.notes && (
                         <div className="text-[10px] text-truarc-muted/70 mt-0.5 truncate">

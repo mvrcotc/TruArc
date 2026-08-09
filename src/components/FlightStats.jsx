@@ -48,15 +48,18 @@ function HoleDisplay({ hole, course }) {
                         </span>
                     )}
                 </div>
-                <span
-                    className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full"
-                    style={{
-                        background: parColor + '15',
-                        color: parColor,
-                    }}
-                >
-                    Par {hole.par}
-                </span>
+                <div className="flex items-center gap-1.5">
+                    <DataQualityBadge dataQuality={hole.dataQuality} />
+                    <span
+                        className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full"
+                        style={{
+                            background: parColor + '15',
+                            color: parColor,
+                        }}
+                    >
+                        Par {hole.par}
+                    </span>
+                </div>
             </div>
 
             <div className="grid grid-cols-3 gap-3">
@@ -328,6 +331,35 @@ function CollisionReadout({ collision, origin }) {
                 )}
             </span>
         </div>
+    );
+}
+
+// ─── DATA QUALITY BADGE (Section 5) ──────────────────────────
+//
+// Surfaces whether a hole's basket is real measured GPS or
+// basketFromTee's estimate directly in the UI a player is looking at —
+// "honesty builds trust" per docs/ACCURACY_ROADMAP.md §5. Renders
+// nothing for 'measured' (the expected, unremarkable case) so the badge
+// only draws attention to data a player should weigh with more caution.
+
+const DATA_QUALITY_STYLES = {
+    estimated: { label: 'ESTIMATED', color: '#ff6b35' },
+    partial: { label: 'PARTIAL', color: '#ff3366' },
+};
+
+function DataQualityBadge({ dataQuality }) {
+    const style = DATA_QUALITY_STYLES[dataQuality];
+    if (!style) return null;
+    return (
+        <span
+            className="text-[9px] font-mono font-bold px-1.5 py-0.5 rounded-full"
+            style={{ background: `${style.color}15`, color: style.color }}
+            title={dataQuality === 'estimated'
+                ? 'Basket position computed from tee + distance + bearing, not measured GPS'
+                : 'Incomplete data — this hole needs to be finished manually'}
+        >
+            {style.label}
+        </span>
     );
 }
 

@@ -27,6 +27,95 @@ function basketFromTee(teeLng, teeLat, distanceFt, bearingDeg) {
     return { lng: teeLng + dLng, lat: teeLat + dLat };
 }
 
+// ─── SCHEMA v2 (Section 5, docs/ACCURACY_ROADMAP.md) ──────────────────
+//
+// A 10° bearing error on a 400 ft hole is ~70 ft of basket error —
+// larger than any physics or collision error already fixed in this
+// codebase — because `tee + estimated bearing + distance` is how 9 of
+// this file's 12 courses have always computed their basket position.
+// That's not a bug to hide; it's a data-provenance fact this schema now
+// makes explicit and machine-checkable rather than silently blending
+// "measured" and "guessed" coordinates into one indistinguishable
+// `basket` field.
+//
+// `normalizeHole()` is the single place a hole becomes canonical shape:
+//   - a hole that already carries an explicit `basket` (real measured
+//     GPS, e.g. Oak Grove below, or output from the future in-app editor
+//     / OSM importer) is trusted as `dataQuality: 'measured'`;
+//   - a hole with only `tee` + `distanceFt` + `bearing` gets its basket
+//     DERIVED via `basketFromTee` and is honestly marked `'estimated'`
+//     — this is `basketFromTee`'s only remaining role: a fallback, never
+//     silently indistinguishable from real data (roadmap §5 build 4).
+//   - a hole's own explicit `dataQuality` (if present) always wins over
+//     both of the above, so `tools/import-osm.mjs`'s `'partial'` (one of
+//     tee/basket recovered, not both) passes through unchanged.
+//
+// New optional per-hole fields (all default to an empty/absent value —
+// no existing course claims to have this data, and fabricating an OB
+// polygon or mando point nobody measured would defeat the entire point
+// of this schema): `obPolygons` (WGS84 ring arrays), `mandos`
+// (`{point:{lng,lat}, direction:'left'|'right'}[]`), `dropzones`
+// (`{lng,lat}[]`), `pinPositions` (named alternate pins,
+// `{name, lng, lat}[]`), `fairway` (dogleg centerline waypoints,
+// `{lng,lat}[]`).
+export const SCHEMA_VERSION = 2;
+export const DATA_QUALITY = Object.freeze({
+    MEASURED: 'measured',
+    ESTIMATED: 'estimated',
+    PARTIAL: 'partial',
+});
+
+/**
+ * Canonicalizes one hole object to schema v2 shape. Idempotent — safe to
+ * call on an already-normalized hole (an explicit `dataQuality` is left
+ * untouched, `basket` is left untouched if present).
+ */
+export function normalizeHole(hole) {
+    const hasBasket = !!hole.basket;
+    const basket = hasBasket
+        ? hole.basket
+        : basketFromTee(hole.tee.lng, hole.tee.lat, hole.distanceFt, hole.bearing);
+    const dataQuality = hole.dataQuality || (hasBasket ? DATA_QUALITY.MEASURED : DATA_QUALITY.ESTIMATED);
+
+    return {
+        obPolygons: [],
+        mandos: [],
+        dropzones: [],
+        pinPositions: null,
+        fairway: null,
+        ...hole,
+        basket,
+        dataQuality,
+    };
+}
+
+/**
+ * Throws with a specific reason on a hole missing what the rest of the
+ * app assumes is always present (num/par/distanceFt/tee/basket as
+ * finite numbers and {lng,lat} pairs). Used by importers/editors so a
+ * malformed entry fails loudly at ingestion, not as a silent NaN deep
+ * in a flight simulation. Does NOT validate the optional schema v2
+ * fields' internal shape (obPolygons rings, mando direction enum,
+ * etc.) — those are structurally simple enough that a wrong shape
+ * fails visibly wherever it's consumed, and over-validating optional,
+ * frequently-absent data has more cost than benefit here.
+ */
+export function validateHole(hole) {
+    const errors = [];
+    if (!Number.isFinite(hole.num)) errors.push('num must be a finite number');
+    if (!Number.isFinite(hole.par)) errors.push('par must be a finite number');
+    if (!Number.isFinite(hole.distanceFt)) errors.push('distanceFt must be a finite number');
+    for (const key of ['tee', 'basket']) {
+        const p = hole[key];
+        if (!p || !Number.isFinite(p.lng) || !Number.isFinite(p.lat)) {
+            errors.push(`${key} must be {lng, lat} with finite coordinates`);
+        }
+    }
+    if (errors.length) {
+        throw new Error(`validateHole: hole ${hole.num ?? '?'} invalid — ${errors.join('; ')}`);
+    }
+}
+
 // ─── COURSE DATABASE ─────────────────────────────────────────────────
 
 export const COURSE_DATABASE = [
@@ -70,7 +159,7 @@ export const COURSE_DATABASE = [
             { num: 16, par: 3, distanceFt: 470, tee: { lng: -71.88660, lat: 42.27570 }, bearing: 310, notes: 'Long and demanding.' },
             { num: 17, par: 3, distanceFt: 400, tee: { lng: -71.88780, lat: 42.27630 }, bearing: 320, notes: 'Risk/reward line over hill.' },
             { num: 18, par: 4, distanceFt: 759, tee: { lng: -71.88870, lat: 42.27680 }, bearing: 290, notes: 'Signature finishing hole. Long downhill. OB line 140ft from pin.' },
-        ].map(h => ({ ...h, basket: basketFromTee(h.tee.lng, h.tee.lat, h.distanceFt, h.bearing) })),
+        ].map(normalizeHole),
     },
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -113,7 +202,7 @@ export const COURSE_DATABASE = [
             { num: 16, par: 3, distanceFt: 391, tee: { lng: -81.01510, lat: 34.94210 }, bearing: 350, notes: 'Precision from the tee.' },
             { num: 17, par: 3, distanceFt: 249, tee: { lng: -81.01530, lat: 34.94280 }, bearing: 10, notes: 'Short but nerve-wracking.' },
             { num: 18, par: 4, distanceFt: 647, tee: { lng: -81.01520, lat: 34.94320 }, bearing: 350, notes: 'Iconic finishing hole. Gallery packed.' },
-        ].map(h => ({ ...h, basket: basketFromTee(h.tee.lng, h.tee.lat, h.distanceFt, h.bearing) })),
+        ].map(normalizeHole),
     },
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -156,7 +245,7 @@ export const COURSE_DATABASE = [
             { num: 16, par: 3, distanceFt: 330, tee: { lng: -121.99710, lat: 37.00490 }, bearing: 40, notes: 'Back into the woods.' },
             { num: 17, par: 3, distanceFt: 370, tee: { lng: -121.99680, lat: 37.00530 }, bearing: 25, notes: 'Elevation change again.' },
             { num: 18, par: 3, distanceFt: 352, tee: { lng: -121.99650, lat: 37.00580 }, bearing: 15, notes: '"Top of the World" — iconic elevated tee with ocean views.' },
-        ].map(h => ({ ...h, basket: basketFromTee(h.tee.lng, h.tee.lat, h.distanceFt, h.bearing) })),
+        ].map(normalizeHole),
     },
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -199,7 +288,7 @@ export const COURSE_DATABASE = [
             { num: 16, par: 5, distanceFt: 969, tee: { lng: -84.73250, lat: 39.03640 }, bearing: 315, notes: 'Monster par 5. Longest hole on course.' },
             { num: 17, par: 3, distanceFt: 287, tee: { lng: -84.73430, lat: 39.03770 }, bearing: 310, notes: 'Famous "Y" tree gap shot.' },
             { num: 18, par: 4, distanceFt: 650, tee: { lng: -84.73500, lat: 39.03810 }, bearing: 290, notes: 'Grand finale. Water in play.' },
-        ].map(h => ({ ...h, basket: basketFromTee(h.tee.lng, h.tee.lat, h.distanceFt, h.bearing) })),
+        ].map(normalizeHole),
     },
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -241,7 +330,7 @@ export const COURSE_DATABASE = [
             { num: 16, par: 3, distanceFt: 351, tee: { lng: -111.71210, lat: 33.60450 }, bearing: 310, notes: 'Desert winds challenge everything.' },
             { num: 17, par: 3, distanceFt: 470, tee: { lng: -111.71280, lat: 33.60490 }, bearing: 305, notes: 'Long grinder. Tough late-round hole.' },
             { num: 18, par: 3, distanceFt: 391, tee: { lng: -111.71360, lat: 33.60530 }, bearing: 300, notes: 'Finish strong. Near the fountain.' },
-        ].map(h => ({ ...h, basket: basketFromTee(h.tee.lng, h.tee.lat, h.distanceFt, h.bearing) })),
+        ].map(normalizeHole),
     },
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -284,7 +373,7 @@ export const COURSE_DATABASE = [
             { num: 16, par: 3, distanceFt: 494, tee: { lng: -86.24990, lat: 43.62140 }, bearing: 340, notes: 'Power hole. Big distance required.' },
             { num: 17, par: 3, distanceFt: 170, tee: { lng: -86.25010, lat: 43.62210 }, bearing: 10, notes: 'Tiny gap. Precision only.' },
             { num: 18, par: 3, distanceFt: 228, tee: { lng: -86.25000, lat: 43.62240 }, bearing: 0, notes: 'Grand downhill finish.' },
-        ].map(h => ({ ...h, basket: basketFromTee(h.tee.lng, h.tee.lat, h.distanceFt, h.bearing) })),
+        ].map(normalizeHole),
     },
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -326,7 +415,7 @@ export const COURSE_DATABASE = [
             { num: 16, par: 3, distanceFt: 320, tee: { lng: -96.17830, lat: 38.40330 }, bearing: 310, notes: 'Known for demanding precision.' },
             { num: 17, par: 5, distanceFt: 760, tee: { lng: -96.17900, lat: 38.40370 }, bearing: 315, notes: 'Par 5. Must manage the wind.' },
             { num: 18, par: 4, distanceFt: 752, tee: { lng: -96.18030, lat: 38.40440 }, bearing: 300, notes: 'Epic finishing hole.' },
-        ].map(h => ({ ...h, basket: basketFromTee(h.tee.lng, h.tee.lat, h.distanceFt, h.bearing) })),
+        ].map(normalizeHole),
     },
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -369,7 +458,7 @@ export const COURSE_DATABASE = [
             { num: 16, par: 3, distanceFt: 440, tee: { lng: 17.90020, lat: 59.40190 }, bearing: 325, notes: 'Scandinavian classic.' },
             { num: 17, par: 4, distanceFt: 700, tee: { lng: 17.89950, lat: 59.40240 }, bearing: 315, notes: 'Penultimate challenge.' },
             { num: 18, par: 3, distanceFt: 436, tee: { lng: 17.89840, lat: 59.40290 }, bearing: 310, notes: 'Finish strong at Järva.' },
-        ].map(h => ({ ...h, basket: basketFromTee(h.tee.lng, h.tee.lat, h.distanceFt, h.bearing) })),
+        ].map(normalizeHole),
     },
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -415,7 +504,7 @@ export const COURSE_DATABASE = [
             { num: 16, par: 3, distanceFt: 225, tee: { lng: -118.17293, lat: 34.19394 }, basket: { lng: -118.17352, lat: 34.19431 }, bearing: 307, notes: 'Northwest. Watch for pedestrians.' },
             { num: 17, par: 3, distanceFt: 205, tee: { lng: -118.17432, lat: 34.19401 }, basket: { lng: -118.17479, lat: 34.19360 }, bearing: 223, notes: 'Southwest toward the finish.' },
             { num: 18, par: 3, distanceFt: 224, tee: { lng: -118.17498, lat: 34.19383 }, basket: { lng: -118.17520, lat: 34.19325 }, bearing: 198, notes: 'Finish at the birthplace of disc golf.' },
-        ],
+        ].map(normalizeHole),
     },
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -457,7 +546,7 @@ export const COURSE_DATABASE = [
             { num: 16, par: 4, distanceFt: 500, tee: { lng: -72.7925, lat: 44.5873 }, bearing: 280, notes: 'Beautiful tunnel.' },
             { num: 17, par: 3, distanceFt: 290, tee: { lng: -72.7945, lat: 44.5876 }, bearing: 350, notes: 'Ace run.' },
             { num: 18, par: 3, distanceFt: 330, tee: { lng: -72.7948, lat: 44.5885 }, bearing: 10, notes: 'Finish toward clubhouse.' },
-        ].map(h => ({ ...h, basket: basketFromTee(h.tee.lng, h.tee.lat, h.distanceFt, h.bearing) })),
+        ].map(normalizeHole),
     },
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -499,7 +588,7 @@ export const COURSE_DATABASE = [
             { num: 16, par: 4, distanceFt: 510, tee: { lng: -122.3660, lat: 45.3036 }, bearing: 280, notes: 'Through giants.' },
             { num: 17, par: 3, distanceFt: 290, tee: { lng: -122.3680, lat: 45.3039 }, bearing: 350, notes: 'Short.' },
             { num: 18, par: 3, distanceFt: 330, tee: { lng: -122.3683, lat: 45.3047 }, bearing: 10, notes: 'Finish strong.' },
-        ].map(h => ({ ...h, basket: basketFromTee(h.tee.lng, h.tee.lat, h.distanceFt, h.bearing) })),
+        ].map(normalizeHole),
     },
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -541,7 +630,7 @@ export const COURSE_DATABASE = [
             { num: 16, par: 4, distanceFt: 490, tee: { lng: -92.4060, lat: 38.9622 }, bearing: 280, notes: 'Creek runs length.' },
             { num: 17, par: 3, distanceFt: 320, tee: { lng: -92.4077, lat: 38.9625 }, bearing: 350, notes: 'Wooded mastery.' },
             { num: 18, par: 5, distanceFt: 880, tee: { lng: -92.4081, lat: 38.9634 }, bearing: 10, notes: 'Legendary finisher.' },
-        ].map(h => ({ ...h, basket: basketFromTee(h.tee.lng, h.tee.lat, h.distanceFt, h.bearing) })),
+        ].map(normalizeHole),
     },
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -573,7 +662,7 @@ export const COURSE_DATABASE = [
                 bearing: (i * 20 + 90) % 360,
                 notes: 'Steep hills, manage your angles.'
             };
-        }).map(h => ({ ...h, basket: basketFromTee(h.tee.lng, h.tee.lat, h.distanceFt, h.bearing) })),
+        }).map(normalizeHole),
     },
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -605,7 +694,7 @@ export const COURSE_DATABASE = [
                 bearing: (i * 20 + 90) % 360,
                 notes: 'Classic parkland golf.'
             };
-        }).map(h => ({ ...h, basket: basketFromTee(h.tee.lng, h.tee.lat, h.distanceFt, h.bearing) })),
+        }).map(normalizeHole),
     },
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -637,7 +726,7 @@ export const COURSE_DATABASE = [
                 bearing: (i * 20 + 90) % 360,
                 notes: 'Wind can be a factor.'
             };
-        }).map(h => ({ ...h, basket: basketFromTee(h.tee.lng, h.tee.lat, h.distanceFt, h.bearing) })),
+        }).map(normalizeHole),
     },
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -669,7 +758,7 @@ export const COURSE_DATABASE = [
                 bearing: (i * 20 + 90) % 360,
                 notes: 'Requires a long drive.'
             };
-        }).map(h => ({ ...h, basket: basketFromTee(h.tee.lng, h.tee.lat, h.distanceFt, h.bearing) })),
+        }).map(normalizeHole),
     },
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -701,7 +790,7 @@ export const COURSE_DATABASE = [
                 bearing: (i * 20 + 90) % 360,
                 notes: 'Navigate the park trees.'
             };
-        }).map(h => ({ ...h, basket: basketFromTee(h.tee.lng, h.tee.lat, h.distanceFt, h.bearing) })),
+        }).map(normalizeHole),
     },
 ];
 

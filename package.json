@@ -15,6 +15,8 @@
         "test:map": "node --test tests/map/*.test.mjs",
         "test:utils": "node --test tests/utils/*.test.mjs",
         "test:collision": "node --test tests/physics/*.test.mjs",
+        "test:data": "node --test tests/data/*.test.mjs",
+        "test:tools": "node --test tests/tools/*.test.mjs",
         "calibrate": "node tools/calibrate.mjs",
         "predeploy": "npm run build",
         "deploy": "gh-pages -d dist"

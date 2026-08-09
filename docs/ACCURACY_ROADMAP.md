@@ -648,21 +648,79 @@ error — larger than any physics error. Course data must be measured, not deriv
    (multiple pin positions), fairway centerline waypoints for doglegs, OB polygons,
    mando points+direction, dropzones. Keep a `dataQuality: "measured" | "estimated"`
    flag and show it in the UI (honesty builds trust).
+   **✅ DONE (the `courses.js` half; Firestore migration is not — see below).**
+   `normalizeHole()`/`validateHole()`/`DATA_QUALITY` added. Every hole in
+   `COURSE_DATABASE` now carries an honest `dataQuality`: Oak Grove's real UDisc
+   GPS baskets are `measured`; the other 16 courses' `basketFromTee()`-derived
+   baskets are `estimated` — verified per-course in tests, not just asserted.
+   Optional fields (`obPolygons`, `mandos`, `dropzones`, `pinPositions`, `fairway`)
+   default to empty/`null` for every existing course, honestly, rather than
+   fabricated: none of that data has actually been measured for any course yet.
+   `normalizeHole` is idempotent and used identically by the static DB, the OSM
+   importer (below), and will be reused by the in-app editor once it exists — one
+   canonicalization path, not three. 14 tests (`tests/data/courses.test.mjs`).
+   **Not done:** the schema still lives only in `courses.js`; nothing writes to
+   Firestore yet (only `users/{uid}` profile data does today — see
+   `src/firebase/firestore.js`). That's the in-app editor's job (item 3).
 2. **OSM importer** (`tools/import-osm.mjs`): Overpass query for
    `leisure=disc_golf_course` relations; many courses have mapped tees/baskets.
+   **✅ DONE, TARGETING A DIFFERENT (also real) OSM CONVENTION.** OSM has no single
+   ratified disc-golf schema; `leisure=disc_golf_course` relations exist but
+   individual-hole tagging is inconsistent. This implementation queries the broader
+   `sport=disc_golf` (nwr) and recognizes the golf-borrowed per-hole convention
+   (`golf=tee`/`golf=hole` + a `ref`/`hole` number) documented on the OSM wiki,
+   since that's what's needed to recover individual tee/basket pairs rather than
+   just a course boundary polygon. Deliberately does NOT guess: a tee found without
+   a matching basket is flagged `dataQuality: 'partial'`, not paired by
+   nearest-neighbor distance (wrong on any switchback layout) or silently dropped.
+   **Real bug caught before shipping:** the first version routed partial holes
+   through `normalizeHole`, which would call `basketFromTee(tee, null, null)` for
+   a tee with no known distance/bearing — silent `NaN` coordinates. Fixed by only
+   basket-deriving complete holes.
+   **⚠️ NOT VERIFIED against a live Overpass response** — this environment's
+   network cannot reach `overpass-api.de` (confirmed: proxy returns 403). Query
+   construction (bbox coordinate ORDER specifically — Overpass is
+   south,west,north,east, the reverse of this app's own field order) and response
+   parsing are tested against a fixture built from Overpass's documented schema
+   (16 tests, `tests/tools/import-osm.test.mjs`), not live data — same category of
+   gap as `acquire.py`'s USGS call. Whether the `golf=tee`/`golf=hole`/`ref`
+   convention actually matches what's mapped for a given real course is unverified
+   until run somewhere with network access.
 3. **In-app course editor:** extend the existing calibrate mode — click satellite
    imagery at zoom 20+ to place/drag tees, baskets, OB vertices, mandos; write to
    Firestore; export/import JSON. This is also the future community-contribution
    surface (course data is the moat).
+   **❌ NOT STARTED.** This is the largest remaining piece of Section 5 — real
+   click/drag map interaction, OB polygon drawing, mando placement UI, and new
+   Firestore read/write + security-rules work (today's `firestore.js` only handles
+   `users/{uid}` profile docs, nothing course-shaped). Deferred to its own session
+   rather than rushed alongside schema v2 + the importer, consistent with how
+   Section 4 split cleanly into an implementation pass and a review pass — this is
+   a build-and-verify-interaction-by-hand piece that doesn't fit the same session
+   as a data-schema pass.
 4. Replace `basketFromTee()` usage: computed baskets remain only as a fallback and
    are always flagged `estimated`.
+   **✅ DONE** — `basketFromTee` is now a private function called from exactly one
+   place (`normalizeHole`'s fallback branch), and every hole that goes through it
+   is unconditionally marked `estimated` unless the hole itself claims otherwise
+   (which none of the 17 courses do). Surfaced in the UI per item 1's "show it"
+   requirement: `FlightStats.jsx`'s hole panel and `CourseManager.jsx`'s hole list
+   both badge non-`measured` holes.
 
 **Acceptance:** Maple Hill fully re-measured via editor against satellite + published
 caddie book; every hole's UI shows data quality; OB renders and feeds Section 4.
+**⚠️ PARTIALLY MET.** Every hole's UI shows data quality (done). Maple Hill has NOT
+been re-measured — that needs the in-app editor (item 3, not started) and a human
+with satellite imagery + the caddie book, neither of which this session can do
+alone. OB rendering/feeding Section 4 is blocked on the same editor, since no
+course has any OB data yet to render (the schema supports it; nothing populates it).
 
 **Model:** **Sonnet 5** for the editor and importer. **Haiku 4.5** for the data
 grunt work (re-entering hole data, migrating the 10 existing courses to schema v2).
-Estimated size: 2 sessions Sonnet, Haiku as needed.
+**Schema v2 + importer done on Sonnet 5 this session. The in-app editor — the
+largest item — and the Haiku 4.5 data-entry pass are both still outstanding.**
+Estimated size: 2 sessions Sonnet, Haiku as needed. **Actual so far: 1 Sonnet
+session (schema v2 + importer); editor is unstarted.**
 
 ---
 

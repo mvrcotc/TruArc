@@ -1,0 +1,53 @@
+name: Course Data & Import Tools
+
+# Tests for src/data/courses.js's Schema v2 (Section 5,
+# docs/ACCURACY_ROADMAP.md) and tools/import-osm.mjs — the OSM
+# importer that produces schema v2 holes from real OpenStreetMap data.
+#
+# Blocking. normalizeHole/validateHole are exact-shape checks (a wrong
+# dataQuality flag or a NaN basket from a malformed import is a
+# correctness bug, not a judgment call), and the OSM importer's request
+# construction / response parsing are tested against a fixture built
+# from Overpass's documented schema.
+#
+# NOT covered: a live Overpass query (this environment's network cannot
+# reach overpass-api.de — see import-osm.mjs's own header comment) or
+# the in-app course editor (not yet built).
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/data/courses.js'
+      - 'tools/import-osm.mjs'
+      - 'tests/data/**'
+      - 'tests/tools/**'
+      - 'package.json'
+  pull_request:
+    paths:
+      - 'src/data/courses.js'
+      - 'tools/import-osm.mjs'
+      - 'tests/data/**'
+      - 'tests/tools/**'
+      - 'package.json'
+  workflow_dispatch: {}
+
+jobs:
+  course-data:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - run: npm ci
+
+      - name: Run course data schema tests
+        run: npm run test:data
+
+      - name: Run OSM importer tests
+        run: npm run test:tools
+
+      - name: Build (validates tools/import-osm.mjs's import of src/data/courses.js)
+        run: npm run build
