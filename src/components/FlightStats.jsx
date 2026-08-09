@@ -1,5 +1,14 @@
 /**
- * FlightStats — Glassmorphism overlay showing flight simulation results
+ * FlightStats — LEFT-column readouts: which hole you're looking at
+ * (course mode) and point-to-point measurements (measure mode).
+ *
+ * Throw-mode flight results moved OUT of this component and into
+ * ThrowPanel.jsx (as `FlightResultsSection`, exported below) so a
+ * thrown disc's results live in the same unified right-hand bar as the
+ * bag/throw-settings/disc-profile that produced them, rather than a
+ * separate floating card. This file keeps FlightResultsSection's
+ * markup so the readout itself — and its collision/OB logic — has one
+ * implementation, not two copies that could drift.
  */
 
 import React from 'react';
@@ -8,14 +17,11 @@ import { Target, ArrowDown, ArrowUp, Ruler, Mountain, Zap, Timer, Flag, Navigati
 import { measure3DDistance } from '../utils/flightPhysics';
 import AnimatedNumber from './AnimatedNumber';
 
-export default function FlightStats({ flightData, measurement, mode, activeHole, activeCourse, onFlyToLanding }) {
+export default function FlightStats({ measurement, mode, activeHole, activeCourse }) {
     return (
         <AnimatePresence mode="wait">
             {mode === 'measure' && measurement && (
                 <MeasurementDisplay key="measure" measurement={measurement} />
-            )}
-            {mode === 'throw' && flightData && (
-                <FlightDisplay key="flight" data={flightData} onFlyToLanding={onFlyToLanding} />
             )}
             {mode === 'course' && activeHole && (
                 <HoleDisplay key="hole" hole={activeHole} course={activeCourse} />
@@ -35,7 +41,7 @@ function HoleDisplay({ hole, course }) {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 8 }}
             transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
-            className="glass-panel p-3.5 w-[280px]"
+            className="glass-panel p-3.5 w-[320px]"
         >
             <div className="flex items-center justify-between mb-3">
                 <div className="flex items-center gap-2">
@@ -132,7 +138,7 @@ function MeasurementDisplay({ measurement }) {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 8 }}
             transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
-            className="glass-panel p-3.5 w-[280px]"
+            className="glass-panel p-3.5 w-[320px]"
         >
             <div className="flex items-center gap-2 mb-3">
                 <Ruler size={14} className="text-truarc-accent" />
@@ -199,22 +205,27 @@ function MeasurementDisplay({ measurement }) {
     );
 }
 
-// ─── FLIGHT DISPLAY ─────────────────────────────────────────
+// ─── FLIGHT RESULTS SECTION ─────────────────────────────────
+//
+// Content-only (no glass-panel wrapper, no fixed width): embedded
+// directly inside ThrowPanel.jsx's own panel/scroll area so a thrown
+// disc's results sit in the same unified bar as the bag and settings
+// that produced them, rather than a second floating card. Exported for
+// that one caller; kept in this file so the collision/OB readout logic
+// isn't duplicated.
 
-function FlightDisplay({ data, onFlyToLanding }) {
+export function FlightResultsSection({ data, onFlyToLanding }) {
     const distFt = data.totalDistance * 3.28084;
     const maxHeightFt = data.maxHeight * 3.28084;
     const collision = data.collision;
 
     return (
         <motion.div
-            initial={{ opacity: 0, y: 8 }}
+            initial={{ opacity: 0, y: 6 }}
             animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 8 }}
-            transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
-            className="glass-panel p-3.5 w-[280px]"
+            transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
         >
-            <div className="flex items-center gap-2 mb-3">
+            <div className="flex items-center gap-2 mb-2.5">
                 <Target size={14} className={collision?.hit ? 'text-truarc-danger' : 'text-truarc-green'} />
                 <span className="cad-text">Flight Results</span>
             </div>

@@ -15,12 +15,11 @@ import { saveCourseEdit } from './firebase/courseEdits';
 
 import MapCanvas from './components/MapCanvas';
 import Toolbar from './components/Toolbar';
-import DiscSelector from './components/DiscSelector';
+import ThrowPanel from './components/ThrowPanel';
 import CalibrationPanel from './components/CalibrationPanel';
 import CourseManager from './components/CourseManager';
 import CourseEditorPanel from './components/CourseEditorPanel';
 import FlightStats from './components/FlightStats';
-import DiscProfilePanel from './components/DiscProfilePanel';
 import CourseSearch from './components/CourseSearch';
 import FloatingCompass from './components/FloatingCompass';
 
@@ -136,6 +135,17 @@ export default function App() {
     }, []);
 
     // ─── KEYBOARD SHORTCUTS ─────────────────────────────────────
+    // 'edit' and 'calibrate' are deliberately NOT buttons in Toolbar.jsx
+    // — they're course-setup tooling (LiDAR↔satellite alignment, placing
+    // tees/baskets/OB), not something a player throwing a round should
+    // see as an option. A published course is expected to already be
+    // calibrated. The modes themselves, and their shortcuts here, are
+    // left intact rather than deleted: someone still has to be able to
+    // reach them to calibrate/edit a course in the first place (e.g. the
+    // Section 5 data-entry pass), and there's no admin-role system in
+    // this app to gate a visible button behind instead. So: reachable by
+    // keyboard for whoever already knows to look for it, invisible to
+    // everyone else.
     useEffect(() => {
         const handleKey = (e) => {
             // Don't intercept when typing in inputs
@@ -282,18 +292,35 @@ export default function App() {
                 />
             </div>
 
-            {/* Left Panel: Always mount all panels (use visibility) so DiscSelector never unmounts - fixes search bug */}
-            <div className="absolute top-[104px] left-5 z-20 pointer-events-auto">
-                <div style={{ display: mode === 'throw' ? 'block' : 'none' }}>
-                    <DiscSelector
-                        selectedDisc={selectedDisc}
-                        onSelectDisc={setSelectedDisc}
-                        myBag={myBag}
-                        onBagChange={setMyBag}
-                        throwSettings={throwSettings}
-                        onUpdateThrow={setThrowSettings}
-                        wind={wind}
-                        onUpdateWind={setWind}
+            {/* Left Panel: course browsing, the active hole's detail, and
+                point-to-point measurements — "where am I / what am I
+                looking at" context, as opposed to the right panel's
+                "what am I about to throw" workflow. FlightStats renders
+                first (top) so the active hole's tee/basket/bearing detail
+                sits above the browsable course/hole list beneath it —
+                current status, then drill-down. It has no mode gate of
+                its own here because it already no-ops for any mode that
+                isn't 'measure' or 'course' internally.
+                Calibrate/Edit are always mounted (display:none when
+                inactive) for the same reason DiscSelector used to be:
+                mode toggling must not reset their in-progress state. They
+                have no Toolbar button (see the keyboard-shortcut comment
+                above) but stay reachable by their shortcuts. */}
+            <div className="absolute top-[104px] left-5 z-20 pointer-events-auto flex flex-col gap-2.5 max-h-[calc(100vh-128px)] overflow-y-auto custom-scrollbar pr-0.5">
+                <FlightStats
+                    mode={mode}
+                    measurement={measurement}
+                    activeHole={activeHole}
+                    activeCourse={activeCourse}
+                />
+                <div style={{ display: mode === 'course' ? 'block' : 'none' }}>
+                    <CourseManager
+                        onSelectCourse={handleSelectCourse}
+                        onSelectHole={handleSelectHole}
+                        onFlyToLocation={handleFlyTo}
+                        onStandOnTee={handleStandOnTee}
+                        activeCourseId={activeCourse?.id}
+                        activeHoleNum={activeHole?.num}
                     />
                 </div>
                 <div style={{ display: mode === 'calibrate' ? 'block' : 'none' }}>
@@ -304,16 +331,6 @@ export default function App() {
                         onLidarToggle={setLidarEnabled}
                         trueViewEnabled={trueViewEnabled}
                         onTrueViewToggle={setTrueViewEnabled}
-                    />
-                </div>
-                <div style={{ display: mode === 'course' ? 'block' : 'none' }}>
-                    <CourseManager
-                        onSelectCourse={handleSelectCourse}
-                        onSelectHole={handleSelectHole}
-                        onFlyToLocation={handleFlyTo}
-                        onStandOnTee={handleStandOnTee}
-                        activeCourseId={activeCourse?.id}
-                        activeHoleNum={activeHole?.num}
                     />
                 </div>
                 <div style={{ display: mode === 'edit' ? 'block' : 'none' }}>
@@ -334,22 +351,28 @@ export default function App() {
                 </div>
             </div>
 
-            {/* Top Right: Stats (measure/flight/course) - out of direct view.
-                DiscProfilePanel stacks below them: the live throw's results on
-                top, the selected disc's REFERENCE flight underneath. The column
-                scrolls rather than overflowing on short viewports. */}
-            <div className="absolute top-[104px] right-5 z-20 flex flex-col gap-2.5 items-end max-h-[calc(100vh-128px)] overflow-y-auto custom-scrollbar pointer-events-auto pr-0.5">
-                <FlightStats
-                    mode={mode}
-                    flightData={flightData}
-                    measurement={measurement}
-                    activeHole={activeHole}
-                    activeCourse={activeCourse}
-                    onFlyToLanding={handleFlyToLanding}
-                />
-                {mode === 'throw' && selectedDisc && (
-                    <DiscProfilePanel disc={selectedDisc} />
-                )}
+            {/* Right Panel: ThrowPanel is the ONE unified bar for the
+                throw workflow — bag, throw settings, wind, this throw's
+                results, and the selected disc's reference profile all
+                live inside it now (see ThrowPanel.jsx). Always mounted
+                (display:none when inactive), same reason as before:
+                unmounting on every mode toggle would reset the search
+                input and lose bag-search-portal position state. */}
+            <div className="absolute top-[104px] right-5 z-20 pointer-events-auto">
+                <div style={{ display: mode === 'throw' ? 'block' : 'none' }}>
+                    <ThrowPanel
+                        selectedDisc={selectedDisc}
+                        onSelectDisc={setSelectedDisc}
+                        myBag={myBag}
+                        onBagChange={setMyBag}
+                        throwSettings={throwSettings}
+                        onUpdateThrow={setThrowSettings}
+                        wind={wind}
+                        onUpdateWind={setWind}
+                        flightData={flightData}
+                        onFlyToLanding={handleFlyToLanding}
+                    />
+                </div>
             </div>
 
             {/* Floating Compass (Top Right, above stats) */}

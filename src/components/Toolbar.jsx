@@ -8,21 +8,25 @@ import {
     Crosshair,
     Ruler,
     Disc3,
-    SlidersHorizontal,
     RotateCcw,
     Layers,
     Zap,
-    MapPin,
 } from 'lucide-react';
 import FirebaseAuthBar from './FirebaseAuthBar';
 import { getEngineChoice, toggleEngineChoice } from '../physics/engineFlag';
 
+// 'edit' (course-geometry editor) and 'calibrate' (LiDAR↔satellite
+// alignment) are deliberately absent from this list — they're
+// course-setup tooling for whoever maintains a course's data, not
+// something every player should see as a mode alongside "throw" or
+// "measure". A published course is expected to already be calibrated.
+// Both modes still exist and are reachable by their keyboard shortcuts
+// (App.jsx) for whoever needs them; see that file's comment for why
+// they weren't deleted outright.
 const MODES = [
     { id: 'course', icon: Layers, label: 'Courses', shortcut: 'L' },
     { id: 'measure', icon: Ruler, label: 'Measure', shortcut: 'M' },
     { id: 'throw', icon: Disc3, label: 'Throw', shortcut: 'T' },
-    { id: 'edit', icon: MapPin, label: 'Edit', shortcut: 'E' },
-    { id: 'calibrate', icon: SlidersHorizontal, label: 'Calibrate', shortcut: 'C' },
 ];
 
 /**

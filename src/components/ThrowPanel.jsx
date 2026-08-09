@@ -1,14 +1,27 @@
 /**
- * DiscSelector — Left rail: bag management + throw settings.
- * Search to add discs to your bag, select from bag to throw.
+ * ThrowPanel — the ONE unified right-hand bar for throw mode: bag
+ * management, throw settings, wind, the results of the throw you just
+ * took, and the selected disc's reference flight profile.
  *
- * Layout contract (soft-premium pass): the rail divides into three
- * visually distinct zones — search (sticky), BAG (what you own), THROW
- * (what you're about to do) — because adding discs and executing a
- * throw are different tasks and used to blur together. Color discipline:
- * the accent is the only interactive hue; disc-type identity survives
- * only as a small dot; every slider is the same color because none of
- * them is more "dangerous" than another.
+ * Previously these were three separate floating cards (a bag/settings
+ * panel on the LEFT, flight results + a disc-profile card stacked on
+ * the RIGHT) that didn't read as belonging together even though they're
+ * all "the throw workflow." They're now one glass-panel, one scroll
+ * region, ordered to match how a throw actually unfolds: pick a disc
+ * (search/bag) → configure it (throw settings/wind) → see what happened
+ * (flight results, once you've thrown) → learn what the disc does in
+ * general (reference profile, always available once one's selected).
+ * `FlightResultsSection` and `DiscProfileSection` are the same
+ * components used nowhere else — no separate "compact" copies to drift
+ * from the real ones.
+ *
+ * Layout contract inside the bag/settings zone (soft-premium pass):
+ * search (sticky), BAG (what you own), THROW (what you're about to do)
+ * — because adding discs and executing a throw are different tasks and
+ * used to blur together. Color discipline: the accent is the only
+ * interactive hue; disc-type identity survives only as a small dot;
+ * every slider is the same color because none of them is more
+ * "dangerous" than another.
  */
 
 import React, { useState, useMemo, useRef, useEffect } from 'react';
@@ -16,6 +29,8 @@ import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Disc3, ChevronDown, Wind, Gauge, Briefcase, Search, Plus, X } from 'lucide-react';
 import { DISC_DATABASE } from '../utils/flightPhysics';
+import { FlightResultsSection } from './FlightStats';
+import { DiscProfileSection } from './DiscProfilePanel';
 
 const DISC_TYPES = ['Distance Driver', 'Fairway Driver', 'Midrange', 'Putter'];
 
@@ -27,7 +42,11 @@ const TYPE_COLORS = {
     'Putter': '#34d399',
 };
 
-export default function DiscSelector({ selectedDisc, onSelectDisc, myBag = [], onBagChange, throwSettings, onUpdateThrow, wind, onUpdateWind }) {
+export default function ThrowPanel({
+    selectedDisc, onSelectDisc, myBag = [], onBagChange,
+    throwSettings, onUpdateThrow, wind, onUpdateWind,
+    flightData, onFlyToLanding,
+}) {
     const [showWind, setShowWind] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
     const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: 0, width: 0 });
@@ -371,6 +390,29 @@ export default function DiscSelector({ selectedDisc, onSelectDisc, myBag = [], o
                         </motion.div>
                     )}
                 </AnimatePresence>
+
+                {/* Flight Results — appears once the current disc has
+                    actually been thrown. Ordered right after setup
+                    (bag/settings/wind) since it's the outcome of that
+                    setup, and above the reference profile since "what
+                    just happened" outranks "what this disc does in
+                    general" for a player checking back after a throw. */}
+                {flightData && (
+                    <>
+                        <div className="cad-divider" />
+                        <FlightResultsSection data={flightData} onFlyToLanding={onFlyToLanding} />
+                    </>
+                )}
+
+                {/* Disc reference profile — always available once a disc
+                    is selected, regardless of whether it's been thrown
+                    yet this session. */}
+                {selectedDisc && (
+                    <>
+                        <div className="cad-divider" />
+                        <DiscProfileSection disc={selectedDisc} />
+                    </>
+                )}
             </div>
         </div>
     );

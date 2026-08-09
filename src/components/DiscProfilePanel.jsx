@@ -1,13 +1,18 @@
 /**
  * ╔══════════════════════════════════════════════════════════════════╗
- * ║  DiscProfilePanel — "What does this disc do naturally?"          ║
+ * ║  DiscProfileSection — "What does this disc do naturally?"        ║
  * ╚══════════════════════════════════════════════════════════════════╝
  *
- * A compact right-rail readout of the SELECTED disc: its published
- * flight numbers, its stability, and a top-down chart of the flight it
- * produces on a reference throw — plus a side-on height strip, because
- * "gets there flat" and "gets there on a floaty hyzer" are different
- * shots and the top-down view cannot tell them apart.
+ * A readout of the SELECTED disc: its published flight numbers, its
+ * stability, and a top-down chart of the flight it produces on a
+ * reference throw — plus a side-on height strip, because "gets there
+ * flat" and "gets there on a floaty hyzer" are different shots and the
+ * top-down view cannot tell them apart.
+ *
+ * Content-only (no glass-panel wrapper, no fixed width) — embedded
+ * directly inside ThrowPanel.jsx's unified right-hand bar, below the
+ * bag/throw-settings/flight-results it shares that panel with, rather
+ * than floating as its own separate card.
  *
  * All the physics lives in src/physics/discProfile.js (pure, no React,
  * fully tested in tests/physics/discProfile.test.mjs). This component
@@ -18,15 +23,17 @@
  * The chart is deliberately pinned to flat / full-power / no-wind so it
  * stays a property of the DISC and remains comparable across discs. It
  * must therefore never look like a preview of the current sliders — the
- * footer says so in as many words. The live throw is already on the map
- * and in FlightStats.
+ * footer says so in as many words. The live throw's own results render
+ * just above this section (ThrowPanel's FlightResultsSection).
  *
  * ── THE CHART IS ANISOTROPIC, AND SAYS SO ────────────────────────────
  * A 350 ft drive with 45 ft of lateral movement cannot be drawn to scale
- * in a 220 px-wide rail. Lateral is stretched relative to downrange, the
- * same way every published flight chart does it. The axis captions carry
- * the true distances in feet so the numbers stay exact even though the
- * drawing is not to scale.
+ * in a narrow rail. Lateral is stretched relative to downrange, the same
+ * way every published flight chart does it. The axis captions carry the
+ * true distances in feet so the numbers stay exact even though the
+ * drawing is not to scale. The SVGs scale via viewBox + width:100%, so
+ * they fill whatever column width they're given without distortion —
+ * CHART_W/HEIGHT_W below only set the internal aspect ratio.
  *
  * NOT visually verified in a browser — this environment's egress policy
  * blocks api.mapbox.com, so the app shell renders but the map behind it
@@ -53,7 +60,7 @@ const CHART_CAPTION_H = 15;   // caption strip BELOW the plot
 const HEIGHT_W = 212;
 const HEIGHT_H = 54;
 
-export default function DiscProfilePanel({ disc }) {
+export function DiscProfileSection({ disc }) {
     // One ~6-7 ms simulation, recomputed only when the disc identity
     // changes — not on every settings-slider frame, since the reference
     // throw deliberately ignores the sliders.
@@ -82,11 +89,9 @@ export default function DiscProfilePanel({ disc }) {
 
     return (
         <motion.div
-            initial={{ opacity: 0, y: 8 }}
+            initial={{ opacity: 0, y: 6 }}
             animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 8 }}
-            transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
-            className="glass-panel p-3.5 w-[280px]"
+            transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
         >
             {/* Header: disc identity + stability */}
             <div className="flex items-start justify-between gap-2 mb-2">
