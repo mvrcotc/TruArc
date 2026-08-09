@@ -83,13 +83,14 @@ const INTERACTIVE_SIM = { dt: 0.004, sampleEvery: 10 };
  * re-render that rebuilds an identical settings object doesn't pay for
  * a fresh simulation.
  */
-export function useDiscProfile(disc, throwSettings, wind) {
+export function useDiscProfile(disc, throwSettings, wind, throwBearingDeg) {
     return useMemo(() => {
         if (!disc) return null;
         try {
             return computeDiscProfile(disc, {
                 throwSettings: throwSettings ?? undefined,
                 wind: wind ?? undefined,
+                throwBearingDeg,
                 simOptions: INTERACTIVE_SIM,
             });
         } catch {
@@ -101,7 +102,7 @@ export function useDiscProfile(disc, throwSettings, wind) {
     }, [
         disc?.name, disc?.brand, disc?.speed, disc?.glide, disc?.turn, disc?.fade,
         throwSettings?.power, throwSettings?.releaseAngle, throwSettings?.noseAngle,
-        wind?.speed, wind?.direction,
+        throwSettings?.aimAngle, wind?.speed, wind?.direction, throwBearingDeg,
     ]);
 }
 

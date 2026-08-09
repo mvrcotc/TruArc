@@ -20,15 +20,17 @@
  * docs/ACCURACY_ROADMAP.md exists to eliminate. The cost of being honest
  * here is one ~6-7 ms simulation per disc selection, memoized by caller.
  *
- * ── REFERENCE THROW, NOT THE USER'S CURRENT SETTINGS ─────────────────
- * `REFERENCE_THROW` is flat (no hyzer, no nose), full power, no wind,
- * flat ground, default thrower. That is what makes the profile a
- * PROPERTY OF THE DISC and comparable across discs — the whole point of
- * "what does it do naturally". The live throw (settings sliders, wind,
- * real terrain) is already shown on the map and in FlightStats; this
- * panel answers a different question and must not drift as sliders move.
- * Callers should label it as a reference throw so the two can't be
- * confused.
+ * ── TWO QUESTIONS, ONE FUNCTION ──────────────────────────────────────
+ * Called bare, `computeDiscProfile(disc)` simulates `REFERENCE_THROW` —
+ * flat, full power, no wind, flat ground — which makes the result a
+ * PROPERTY OF THE DISC, comparable across discs. That is the reading
+ * the stability label and most of the test suite are written against.
+ *
+ * Given `throwSettings`/`wind`, it instead simulates THIS THROW, which
+ * is what lets the panel's chart redraw as the player drags a slider.
+ * These are different claims and must never be presented as the same
+ * one: the return value carries `isReferenceThrow` so a caller can say
+ * which it is showing, and DiscProfilePanel does say so in words.
  *
  * ── WHAT IS AND ISN'T CALIBRATED ─────────────────────────────────────
  * The engine currently passes 13/35 ground-truth envelopes (see
@@ -99,11 +101,14 @@ function throwSpecFieldsFromUI(ui) {
  */
 export function stabilityFromNumbers(disc) {
     const s = (disc?.turn ?? 0) + (disc?.fade ?? 0);
-    if (s < -2) return { key: 'very-understable', label: 'Very Understable', color: '#00e5ff', sum: s };
-    if (s < -0.5) return { key: 'understable', label: 'Understable', color: '#4dd4ff', sum: s };
-    if (s <= 1.5) return { key: 'stable', label: 'Stable', color: '#00ff88', sum: s };
-    if (s <= 3) return { key: 'overstable', label: 'Overstable', color: '#ff6b35', sum: s };
-    return { key: 'very-overstable', label: 'Very Overstable', color: '#ff3366', sum: s };
+    // Colours are the soft-premium palette (tailwind.config.js), not the
+    // retired neon set — this badge is UI chrome, unlike the map layers
+    // that stay vivid for visibility over satellite imagery.
+    if (s < -2) return { key: 'very-understable', label: 'Very Understable', color: '#4cb8ff', sum: s };
+    if (s < -0.5) return { key: 'understable', label: 'Understable', color: '#7cc9ff', sum: s };
+    if (s <= 1.5) return { key: 'stable', label: 'Stable', color: '#34d399', sum: s };
+    if (s <= 3) return { key: 'overstable', label: 'Overstable', color: '#f5a65b', sum: s };
+    return { key: 'very-overstable', label: 'Very Overstable', color: '#ff6b7a', sum: s };
 }
 
 /**
@@ -114,7 +119,14 @@ export function stabilityFromNumbers(disc) {
  * @param {Object} [options] - {
  *        throwSettings: UI `{power, aimAngle, releaseAngle, noseAngle}`
  *          — omit for the canonical REFERENCE_THROW;
- *        wind: UI `{speed, direction}` — omit for dead calm;
+ *        wind: UI `{speed, direction}` where direction is the
+ *          METEOROLOGICAL bearing the wind blows FROM — omit for calm;
+ *        throwBearingDeg: compass bearing the throw is aimed along,
+ *          used to rotate that wind into the chart's frame. The chart's
+ *          vertical axis IS the aim line, so without this the chart and
+ *          the map would simulate the SAME wind from different
+ *          directions — a disagreement a player would see as the chart
+ *          lying about the flight it just drew;
  *        thrower, mapping, simOptions — overrides for Section 6
  *          (per-user thrower profiles) and for tests.
  *      }
@@ -163,7 +175,14 @@ export function computeDiscProfile(disc, options = {}) {
     // comment). No terrain callback: flat ground, so the chart stays a
     // statement about the disc and the throw rather than about one
     // particular hole's slope.
-    const wind = options.wind ? buildWindSpec(options.wind) : {};
+    // The aim slider is added in for the same reason MapCanvas adds it
+    // to its own bearing: the flight is aimed along
+    // (hole bearing + aim), so that is the axis the wind must be
+    // measured against. Aim still does not reshape the flight itself —
+    // see throwSpecFieldsFromUI.
+    const aimDeg = options.throwSettings?.aimAngle ?? 0;
+    const windBearing = (options.throwBearingDeg ?? 0) + aimDeg;
+    const wind = options.wind ? buildWindSpec(options.wind, windBearing) : {};
     const noWind = !(wind.speedMps > 0);
 
     const result = simulateFlight(disc, throwSpec, wind, null, {

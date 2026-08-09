@@ -9,6 +9,7 @@ import React, { useState, useRef, useReducer, useCallback, useEffect } from 'rea
 import { getCalibrationOffset } from './utils/calibrationOffset';
 import { loadBag, saveBag, loadSelectedDisc, saveSelectedDisc } from './utils/discBag';
 import { DEFAULT_THROW_SETTINGS } from './physics/throwerProfile';
+import { fetchCourseWeather } from './utils/weather';
 import { useAuth } from './context/AuthContext';
 import { holeEditReducer, createEditState, EDIT_ACTIONS } from './editor/holeEditState';
 import { exportHoleEdit, importHoleEdit } from './editor/courseEditExport';
@@ -23,6 +24,7 @@ import CourseEditorPanel from './components/CourseEditorPanel';
 import FlightStats from './components/FlightStats';
 import CourseSearch from './components/CourseSearch';
 import FloatingCompass from './components/FloatingCompass';
+import WeatherPanel from './components/WeatherPanel';
 
 export default function App() {
     const mapRef = useRef(null);
@@ -37,7 +39,15 @@ export default function App() {
     // than to a second, drifting copy of "default". Spread because the
     // exported constant is frozen and this is mutable state.
     const [throwSettings, setThrowSettings] = useState({ ...DEFAULT_THROW_SETTINGS });
+    // `direction` is the METEOROLOGICAL bearing the wind blows FROM
+    // (0 = from the north), matching what a weather service reports and
+    // what WeatherPanel's rose shows. It is rotated into each engine's
+    // throw-relative frame once, at the engine boundary — see
+    // throwerProfile.buildWindSpec.
     const [wind, setWind] = useState({ speed: 0, direction: 0 });
+    const [observedWeather, setObservedWeather] = useState(null);
+    const [weatherState, setWeatherState] = useState('idle'); // idle|loading|ok|unavailable
+    const [weatherExpanded, setWeatherExpanded] = useState(false);
     const [measurement, setMeasurement] = useState(null);
     const [flightData, setFlightData] = useState(null);
     const [searchOpen, setSearchOpen] = useState(false);
@@ -256,6 +266,56 @@ export default function App() {
         setViewState({ bearing, pitch });
     }, []);
 
+    // ─── OBSERVED WEATHER ─────────────────────────────────────────
+    // Fetched per course, not per hole: a course is far smaller than
+    // the weather model's grid cell, so re-fetching per hole would burn
+    // requests for an identical answer.
+    //
+    // The observation is NEVER auto-applied to `wind`. Silently moving
+    // the sliders under the player would make an unexplained change to
+    // every simulated flight; WeatherPanel shows the reading and offers
+    // a one-click "Use" instead. A failed fetch leaves wind untouched
+    // and reports 'unavailable' — "no observation" and "dead calm" are
+    // different claims.
+    const weatherRunRef = useRef(0);
+    const loadWeather = useCallback(async (course, signal) => {
+        if (!course?.center) {
+            setObservedWeather(null);
+            setWeatherState('idle');
+            return;
+        }
+        const run = ++weatherRunRef.current;
+        setWeatherState('loading');
+        try {
+            const w = await fetchCourseWeather(course.center.lat, course.center.lng, { signal });
+            if (run !== weatherRunRef.current) return; // a newer course won
+            setObservedWeather(w);
+            setWeatherState(w ? 'ok' : 'unavailable');
+        } catch (err) {
+            if (err?.name === 'AbortError' || run !== weatherRunRef.current) return;
+            setObservedWeather(null);
+            setWeatherState('unavailable');
+        }
+    }, []);
+
+    useEffect(() => {
+        const ac = new AbortController();
+        loadWeather(activeCourse, ac.signal);
+        return () => ac.abort();
+    }, [activeCourse?.id, loadWeather]);
+
+    const handleUseObserved = useCallback(() => {
+        if (!observedWeather) return;
+        setWind({
+            speed: Math.round(observedWeather.windSpeedMps * 2) / 2, // slider step
+            direction: Math.round(observedWeather.windFromDeg / 5) * 5,
+        });
+    }, [observedWeather]);
+
+    const handleRefreshWeather = useCallback(() => {
+        loadWeather(activeCourse);
+    }, [loadWeather, activeCourse]);
+
     // ─── RENDER ─────────────────────────────────────────────────
     return (
         <div className="relative w-screen h-screen bg-truarc-bg overflow-hidden">
@@ -313,6 +373,26 @@ export default function App() {
                     activeHole={activeHole}
                     activeCourse={activeCourse}
                 />
+
+                {/* Wind lives on this side because it belongs to the
+                    PLACE, not to the disc in your hand. Shown in throw
+                    and course modes — the two where it's actionable —
+                    and collapsed by default so it summarises in one line
+                    without crowding the course browser. */}
+                {(mode === 'throw' || mode === 'course') && (
+                    <WeatherPanel
+                        wind={wind}
+                        onUpdateWind={setWind}
+                        observed={observedWeather}
+                        observedState={weatherState}
+                        onRefresh={handleRefreshWeather}
+                        onUseObserved={handleUseObserved}
+                        holeBearingDeg={activeHole?.bearing}
+                        expanded={weatherExpanded}
+                        onToggle={() => setWeatherExpanded((v) => !v)}
+                    />
+                )}
+
                 <div style={{ display: mode === 'course' ? 'block' : 'none' }}>
                     <CourseManager
                         onSelectCourse={handleSelectCourse}
@@ -371,6 +451,7 @@ export default function App() {
                         onUpdateWind={setWind}
                         flightData={flightData}
                         onFlyToLanding={handleFlyToLanding}
+                        throwBearingDeg={activeHole?.bearing}
                     />
                 </div>
             </div>

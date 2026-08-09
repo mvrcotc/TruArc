@@ -88,7 +88,12 @@ function getWorker() {
 /**
  * @param {Object} disc - { speed, glide, turn, fade }
  * @param {Object} throwParamsUI - existing UI shape: { power, aimAngle, releaseAngle, noseAngle }
- * @param {Object} wind - { speed, direction } (legacy naming, matches existing callers)
+ * @param {Object} wind - { speed (m/s), direction } where `direction` is
+ *   the METEOROLOGICAL compass bearing the wind blows FROM (0 = from
+ *   the north), matching what a weather service reports. It is rotated
+ *   into each engine's throw-relative frame using `options.bearingDeg`
+ *   — see throwerProfile.buildWindSpec for why that rotation is
+ *   load-bearing rather than cosmetic.
  * @param {Object} terrainProfile - from buildTerrainProfile(), or null for flat ground
  * @param {Object} [options] - { engine: 'sixdof' | 'legacy',
  *   origin: {lng,lat,elevation}, bearingDeg: number } — origin/bearingDeg
@@ -102,9 +107,13 @@ function getWorker() {
 export async function simulateDiscFlightAsync(disc, throwParamsUI, wind, terrainProfile, options = {}) {
     const engine = options.engine ?? getEngineChoice();
     const requestId = nextRequestId++;
-    const message = buildMessage(requestId, engine, disc, throwParamsUI, wind, terrainProfile);
+    // The throw bearing is needed BEFORE buildMessage, not after: wind
+    // is stored in compass degrees and has to be rotated into the
+    // engine's throw-relative frame as the message is built.
+    const bearingDeg = options.bearingDeg ?? 0;
+    const message = buildMessage(requestId, engine, disc, throwParamsUI, wind, terrainProfile, bearingDeg);
     message.origin = options.origin ?? null;
-    message.bearingDeg = options.bearingDeg ?? 0;
+    message.bearingDeg = bearingDeg;
 
     const w = getWorker();
     if (w) {
@@ -140,7 +149,7 @@ export function clearCourseCollisionData() {
     if (w) w.postMessage({ type: 'clearCollisionData' });
 }
 
-function buildMessage(requestId, engine, disc, throwParamsUI, wind, terrainProfile) {
+function buildMessage(requestId, engine, disc, throwParamsUI, wind, terrainProfile, throwBearingDeg = 0) {
     if (engine === 'legacy') {
         return {
             requestId,
@@ -152,9 +161,15 @@ function buildMessage(requestId, engine, disc, throwParamsUI, wind, terrainProfi
                 releaseAngle: throwParamsUI.releaseAngle,
                 noseAngle: throwParamsUI.noseAngle,
             },
-            // Legacy reads `wind.speed`/`wind.direction` — the UI's own
-            // shape — so it is passed through unconverted, deliberately.
-            wind,
+            // Legacy reads `wind.speed`/`wind.direction` directly and
+            // interprets direction in its own throw-relative frame, so
+            // it needs the same rotation — just under the UI's field
+            // names. Rotating here keeps observed weather meaning the
+            // same thing on both engines.
+            wind: {
+                speed: wind?.speed ?? 0,
+                direction: ((( (wind?.direction ?? 0) - throwBearingDeg) % 360) + 360) % 360,
+            },
             terrainProfile,
         };
     }
@@ -167,13 +182,14 @@ function buildMessage(requestId, engine, disc, throwParamsUI, wind, terrainProfi
     // 6-DOF reads `speedMps`/`directionDeg`. Passing the UI object
     // through unconverted (as this did) made every 6-DOF throw a
     // dead-calm one no matter where the wind sliders sat — see
-    // buildWindSpec's comment for the full account.
+    // buildWindSpec's comment for the full account, including why the
+    // compass→throw-relative rotation happens here too.
     return {
         requestId,
         engine: 'sixdof',
         disc,
         params: throwSpec,
-        wind: buildWindSpec(wind),
+        wind: buildWindSpec(wind, throwBearingDeg),
         terrainProfile,
     };
 }

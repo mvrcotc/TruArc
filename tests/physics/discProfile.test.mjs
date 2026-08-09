@@ -34,6 +34,7 @@ import {
     CHART_DIMS,
 } from '../../src/physics/discProfile.js';
 import { DISC_DATABASE } from '../../src/data/discs.js';
+import { buildWindSpec } from '../../src/physics/throwerProfile.js';
 
 // Real flight numbers, by name, from the shipped database.
 const DESTROYER = { name: 'Destroyer', speed: 12, glide: 5, turn: -1, fade: 3 };
@@ -296,6 +297,60 @@ describe('computeDiscProfile — wind', () => {
     test('wind disqualifies a profile from claiming to be the reference throw', () => {
         const windy = computeDiscProfile(DESTROYER, { wind: { speed: 8, direction: 0 } });
         assert.equal(windy.isReferenceThrow, false);
+    });
+
+    test('wind direction is COMPASS, so the same wind plays differently per hole bearing', () => {
+        // Wind is stored as the meteorological bearing it blows FROM.
+        // The same easterly is a headwind on an east-facing hole and a
+        // tailwind on a west-facing one — if the bearing were ignored,
+        // these would be identical.
+        const wind = { speed: 8, direction: 90 }; // from the east
+        const intoIt = computeDiscProfile(DESTROYER, { throwSettings: flat, wind, throwBearingDeg: 90 });
+        const withIt = computeDiscProfile(DESTROYER, { throwSettings: flat, wind, throwBearingDeg: 270 });
+
+        // Direction-of-effect, matching the ground-truth suite's
+        // "headwind-increases-turn": a headwind raises airspeed and
+        // turns a RH backhand over to the RIGHT, a tailwind does not.
+        assert.ok(intoIt.lateralFinishM > withIt.lateralFinishM,
+            `headwind finish ${intoIt.lateralFinishFt.toFixed(0)}ft should be right of tailwind ${withIt.lateralFinishFt.toFixed(0)}ft`);
+
+        // NOT asserted: that a headwind flies shorter. It does not here,
+        // and that is correct rather than a calibration artefact — a
+        // tailwind bleeds airspeed off a speed-12 driver until it stops
+        // generating lift (measured apex 6ft vs 18ft), so it drops early
+        // while the headwind stays aloft and turns over. Encoding the
+        // naive "headwind = shorter" intuition here would pin a claim
+        // the physics contradicts.
+        assert.ok(Math.abs(intoIt.distanceM - withIt.distanceM) > 1,
+            'bearing must materially change the flight');
+    });
+
+    test('the chart matches the map: same wind + bearing gives the engine the same input', () => {
+        // The chart and the map must not simulate the same wind from
+        // different directions — a player would see the chart contradict
+        // the flight it just drew. Both funnel through buildWindSpec, so
+        // this asserts the chart's rotation equals the engine boundary's.
+        const wind = { speed: 8, direction: 45 };
+        const bearing = 135;
+        const viaChart = computeDiscProfile(DESTROYER, { throwSettings: flat, wind, throwBearingDeg: bearing });
+        // Same throw, expressed the way the engine boundary would: wind
+        // already rotated, bearing therefore zero.
+        const preRotated = { speed: 8, direction: buildWindSpec(wind, bearing).directionDeg };
+        const viaEngine = computeDiscProfile(DESTROYER, { throwSettings: flat, wind: preRotated });
+        assert.equal(viaChart.distanceM, viaEngine.distanceM);
+        assert.equal(viaChart.lateralFinishM, viaEngine.lateralFinishM);
+    });
+
+    test('the aim slider rotates the wind, since aim moves the axis the wind is measured against', () => {
+        // Aim doesn't reshape the flight, but it does change which way
+        // you are facing — so a headwind becomes a quartering wind. This
+        // mirrors MapCanvas, which aims along (hole bearing + aim).
+        const wind = { speed: 8, direction: 0 }; // from the north
+        const straight = computeDiscProfile(DESTROYER, { throwSettings: flat, wind, throwBearingDeg: 0 });
+        const aimed = computeDiscProfile(DESTROYER, {
+            throwSettings: { ...flat, aimAngle: 45 }, wind, throwBearingDeg: 0,
+        });
+        assert.notEqual(aimed.lateralFinishM, straight.lateralFinishM);
     });
 });
 

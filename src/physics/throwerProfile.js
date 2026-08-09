@@ -48,10 +48,19 @@ export const DEFAULT_THROW_SETTINGS = Object.freeze({
 });
 
 /**
- * UI wind (`{speed, direction}`) → the engine's wind
- * (`{speedMps, directionDeg}`).
+ * App wind → the engine's wind, converting BOTH the field names and the
+ * reference frame.
  *
- * ── THIS EXISTS BECAUSE THE RENAME WAS SILENTLY LOST ─────────────────
+ * @param {{speed?: number, direction?: number}} uiWind
+ *        `speed` in m/s; `direction` is the METEOROLOGICAL bearing the
+ *        wind blows FROM (0 = from the north), which is what a weather
+ *        service reports and what the UI's compass rose shows.
+ * @param {number} [throwBearingDeg] compass bearing the throw is aimed
+ *        along. Defaults to 0, which makes the conversion a pure rename
+ *        — the behaviour before wind became a world property.
+ * @returns {{speedMps: number, directionDeg: number}}
+ *
+ * ── WHY THIS EXISTS AT ALL: THE RENAME WAS SILENTLY LOST ─────────────
  * `sixDof.windVector()` reads `speedMps`/`directionDeg`. The app's wind
  * object has always been `{speed, direction}` and was passed straight
  * through, so `wind?.speedMps ?? 0` evaluated to 0 on every 6-DOF
@@ -59,22 +68,29 @@ export const DEFAULT_THROW_SETTINGS = Object.freeze({
  * active**, which is the default. The legacy engine reads `wind.speed`
  * directly and was unaffected, and the ground-truth suite's adapter
  * targets the legacy engine — so nothing in the test suite ever
- * exercised the broken path. Converting here, at the one boundary, is
- * what makes the fix un-repeatable rather than patching call sites.
+ * exercised the broken path. Converting at this one boundary is what
+ * makes the fix un-repeatable rather than patching call sites.
  *
- * Values are unchanged, only renamed: the two engines' direction
- * conventions were verified identical over d ∈ {0,45,90,135,180,270}
- * (legacy `(-s·sin d, -s·cos d)` in output frame equals sixDof's
- * `[-s·cos d, s·sin d, 0]` mapped through `toOutputFrame`), so this is
- * a pure rename and cannot rotate the wind.
- *
- * @param {{speed?: number, direction?: number}} uiWind
- * @returns {{speedMps: number, directionDeg: number}}
+ * ── AND WHY IT NOW ROTATES ───────────────────────────────────────────
+ * The engine's `directionDeg` is measured relative to the THROW's
+ * forward axis: at 0 the wind vector is `(0, −s)` in the output frame,
+ * i.e. straight into the disc's face — a headwind. That frame is fine
+ * for a slider, but real weather is reported in compass degrees, and a
+ * compass bearing fed in raw is rotated by the hole's own bearing. On
+ * an east-facing hole that silently converts a headwind into a
+ * crosswind with no visible symptom. Rotating by the throw bearing here
+ * is what lets observed weather and the manual slider share one
+ * meaning. The two engines' conventions were verified identical over
+ * d ∈ {0,45,90,135,180,270} (legacy `(−s·sin d, −s·cos d)` in output
+ * frame equals sixDof's `[−s·cos d, s·sin d, 0]` through
+ * `toOutputFrame`), so this rotation applies to both.
  */
-export function buildWindSpec(uiWind) {
+export function buildWindSpec(uiWind, throwBearingDeg = 0) {
+    const from = uiWind?.direction ?? 0;
+    const bearing = Number.isFinite(throwBearingDeg) ? throwBearingDeg : 0;
     return {
         speedMps: uiWind?.speed ?? 0,
-        directionDeg: uiWind?.direction ?? 0,
+        directionDeg: ((from - bearing) % 360 + 360) % 360,
     };
 }
 

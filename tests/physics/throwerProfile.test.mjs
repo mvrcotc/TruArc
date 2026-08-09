@@ -31,7 +31,7 @@ const UI_THROW = { power: 80, aimAngle: 0, releaseAngle: 0, noseAngle: 2 };
 // ─── buildWindSpec ───────────────────────────────────────────────────
 
 describe('buildWindSpec', () => {
-    test('renames the UI fields to the engine fields, values untouched', () => {
+    test('renames the UI fields to the engine fields, speed untouched', () => {
         assert.deepEqual(buildWindSpec({ speed: 7.5, direction: 135 }), {
             speedMps: 7.5,
             directionDeg: 135,
@@ -53,10 +53,35 @@ describe('buildWindSpec', () => {
         });
     });
 
-    test('is a pure rename — it can never rotate the wind', () => {
+    test('with no throw bearing it is a pure rename', () => {
+        // Bearing 0 means "throwing due north", where the compass frame
+        // and the engine's throw-relative frame coincide.
         for (const direction of [0, 45, 90, 135, 180, 270, 359]) {
             assert.equal(buildWindSpec({ speed: 5, direction }).directionDeg, direction);
         }
+    });
+
+    test('rotates compass wind into the throw-relative frame', () => {
+        // Hole plays due east; wind from the east is a HEADWIND, which
+        // the engine expresses as 0. Getting this wrong turns a headwind
+        // into a crosswind with no visible symptom.
+        assert.equal(buildWindSpec({ speed: 5, direction: 90 }, 90).directionDeg, 0);
+        // Same hole, wind from the north = from the thrower's left.
+        assert.equal(buildWindSpec({ speed: 5, direction: 0 }, 90).directionDeg, 270);
+        // Hole plays south; wind from the north is a tailwind.
+        assert.equal(buildWindSpec({ speed: 5, direction: 0 }, 180).directionDeg, 180);
+    });
+
+    test('normalises the rotated result into [0, 360)', () => {
+        for (const [from, bearing] of [[10, 40], [0, 359], [350, -20], [45, 720]]) {
+            const d = buildWindSpec({ speed: 5, direction: from }, bearing).directionDeg;
+            assert.ok(d >= 0 && d < 360, `got ${d} for from=${from} bearing=${bearing}`);
+        }
+    });
+
+    test('a non-finite bearing falls back to no rotation rather than NaN', () => {
+        assert.equal(buildWindSpec({ speed: 5, direction: 90 }, undefined).directionDeg, 90);
+        assert.equal(buildWindSpec({ speed: 5, direction: 90 }, NaN).directionDeg, 90);
     });
 });
 
@@ -77,13 +102,31 @@ describe('flightEngine.buildMessage — wind reaches the engine in engine units'
         assert.ok(msg.wind.speedMps > 0, 'non-zero UI wind became calm in the engine message');
     });
 
-    test('the LEGACY message keeps the UI shape, which is what that engine reads', () => {
-        // flightPhysics.js reads `wind.speed`/`wind.direction`; converting
-        // here would break the legacy path in the mirror-image way.
+    test('the LEGACY message keeps the UI field NAMES, which is what that engine reads', () => {
+        // flightPhysics.js reads `wind.speed`/`wind.direction`; renaming
+        // them here would break the legacy path in the mirror-image way.
         const msg = buildMessage(1, 'legacy', DISC, UI_THROW, { speed: 6, direction: 45 }, null);
         assert.equal(msg.engine, 'legacy');
         assert.equal(msg.wind.speed, 6);
         assert.equal(msg.wind.direction, 45);
+    });
+
+    test('both engines rotate compass wind by the throw bearing identically', () => {
+        // The two engines' direction conventions were verified identical,
+        // so observed weather must mean the same thing on either. If only
+        // one path rotated, flipping the A/B engine toggle would silently
+        // change where the wind comes from.
+        const wind = { speed: 6, direction: 90 };
+        const six = buildMessage(1, 'sixdof', DISC, UI_THROW, wind, null, 90);
+        const legacy = buildMessage(2, 'legacy', DISC, UI_THROW, wind, null, 90);
+        assert.equal(six.wind.directionDeg, 0);
+        assert.equal(legacy.wind.direction, 0);
+    });
+
+    test('an omitted bearing leaves both engines unrotated', () => {
+        const wind = { speed: 6, direction: 135 };
+        assert.equal(buildMessage(1, 'sixdof', DISC, UI_THROW, wind, null).wind.directionDeg, 135);
+        assert.equal(buildMessage(2, 'legacy', DISC, UI_THROW, wind, null).wind.direction, 135);
     });
 
     test('missing wind degrades to calm on both engines rather than throwing', () => {

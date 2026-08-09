@@ -1,19 +1,21 @@
 /**
- * ThrowPanel — the ONE unified right-hand bar for throw mode: bag
- * management, throw settings, wind, the results of the throw you just
- * took, and the selected disc's reference flight profile.
+ * ThrowPanel — the ONE unified right-hand bar for throw mode: the
+ * selected disc's live flight chart, the throw settings that reshape
+ * it, the results of the throw you just took, and the bag.
  *
- * Previously these were three separate floating cards (a bag/settings
- * panel on the LEFT, flight results + a disc-profile card stacked on
- * the RIGHT) that didn't read as belonging together even though they're
- * all "the throw workflow." They're now one glass-panel, one scroll
- * region, ordered to match how a throw actually unfolds: pick a disc
- * (search/bag) → configure it (throw settings/wind) → see what happened
- * (flight results, once you've thrown) → learn what the disc does in
- * general (reference profile, always available once one's selected).
- * `FlightResultsSection` and `DiscProfileSection` are the same
- * components used nowhere else — no separate "compact" copies to drift
- * from the real ones.
+ * Previously these were separate floating cards that didn't read as
+ * belonging together even though they're all "the throw workflow."
+ * They're now one glass-panel, ordered to match how a throw unfolds:
+ * see the disc's flight → adjust it → see what happened → manage the
+ * bag. `FlightResultsSection`, `DiscProfileChart` and
+ * `DiscProfileDetail` are the same components used nowhere else — no
+ * separate "compact" copies to drift from the real ones.
+ *
+ * Wind is NOT here: it lives in WeatherPanel in the LEFT rail, because
+ * wind is a property of the PLACE — it applies to every throw on the
+ * hole regardless of which disc is in hand — rather than part of one
+ * throw's setup. It still reaches the flight chart via the `wind` prop,
+ * since it genuinely changes the flight being drawn.
  *
  * Layout contract inside the bag/settings zone (soft-premium pass):
  * search (sticky), BAG (what you own), THROW (what you're about to do)
@@ -27,7 +29,7 @@
 import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Disc3, ChevronDown, Wind, Gauge, Briefcase, Search, Plus, X, RotateCcw } from 'lucide-react';
+import { Disc3, ChevronDown, Gauge, Briefcase, Search, Plus, X, RotateCcw } from 'lucide-react';
 import { DISC_DATABASE } from '../utils/flightPhysics';
 import { DEFAULT_THROW_SETTINGS } from '../physics/throwerProfile';
 import { FlightResultsSection } from './FlightStats';
@@ -46,9 +48,8 @@ const TYPE_COLORS = {
 export default function ThrowPanel({
     selectedDisc, onSelectDisc, myBag = [], onBagChange,
     throwSettings, onUpdateThrow, wind, onUpdateWind,
-    flightData, onFlyToLanding,
+    flightData, onFlyToLanding, throwBearingDeg,
 }) {
-    const [showWind, setShowWind] = useState(false);
     // Collapsed by default: a player picks one disc and then works the
     // sliders, so an always-open bag list mostly serves to push
     // everything else down. Opened when the bag is EMPTY, though —
@@ -77,7 +78,7 @@ export default function ThrowPanel({
     // ONE simulation, shared by the pinned chart and the scrolling
     // detail below it. Computing it here rather than inside each section
     // is what keeps the split from doubling the physics cost.
-    const profile = useDiscProfile(selectedDisc, throwSettings, wind);
+    const profile = useDiscProfile(selectedDisc, throwSettings, wind, throwBearingDeg);
 
     // Update dropdown position when search is active - use rAF to ensure layout is complete
     useEffect(() => {
@@ -223,55 +224,6 @@ export default function ThrowPanel({
                         <DiscProfileDetail disc={selectedDisc} profile={profile} />
                     </>
                 )}
-
-                {/* Wind */}
-                <div className="cad-divider !my-0" />
-                <button
-                    onClick={() => setShowWind(!showWind)}
-                    className="flex items-center gap-2 w-full py-1 group"
-                    aria-expanded={showWind}
-                >
-                    <Wind size={14} className="text-truarc-muted/70" />
-                    <span className="cad-text group-hover:text-truarc-text transition-colors duration-150">Wind Conditions</span>
-                    {wind.speed > 0 && (
-                        <span className="font-mono text-micro text-truarc-accent/80 tabular-nums">{wind.speed} m/s</span>
-                    )}
-                    <ChevronDown size={12} className={`ml-auto text-truarc-muted/60 transition-transform duration-200 ${showWind ? 'rotate-180' : ''}`} />
-                </button>
-
-                <AnimatePresence>
-                    {showWind && (
-                        <motion.div
-                            initial={{ height: 0, opacity: 0 }}
-                            animate={{ height: 'auto', opacity: 1 }}
-                            exit={{ height: 0, opacity: 0 }}
-                            transition={{ duration: 0.2, ease: 'easeOut' }}
-                            className="overflow-hidden flex flex-col gap-3"
-                        >
-                            <SliderControl
-                                label="Wind Speed"
-                                value={wind.speed}
-                                onChange={(v) => onUpdateWind({ ...wind, speed: v })}
-                                min={0}
-                                max={15}
-                                unit="m/s"
-                                step={0.5}
-                            />
-                            <SliderControl
-                                label="Wind Direction"
-                                value={wind.direction}
-                                onChange={(v) => onUpdateWind({ ...wind, direction: v })}
-                                min={0}
-                                max={360}
-                                unit="°"
-                                step={5}
-                            />
-                            <div className="text-center pb-1">
-                                <WindCompass direction={wind.direction} />
-                            </div>
-                        </motion.div>
-                    )}
-                </AnimatePresence>
 
                 {/* Flight Results — only once this disc has actually been
                     thrown. Above the bag because "what just happened"
@@ -494,31 +446,6 @@ function SliderControl({ label, value, onChange, min, max, unit, step = 1 }) {
                     background: `linear-gradient(to right, ${SLIDER_FILL} ${pct}%, ${SLIDER_TRACK} ${pct}%)`,
                 }}
             />
-        </div>
-    );
-}
-
-// ─── WIND COMPASS ───────────────────────────────────────────
-
-function WindCompass({ direction }) {
-    return (
-        <div className="relative w-12 h-12 mx-auto">
-            <svg viewBox="0 0 48 48" className="w-full h-full">
-                <circle cx="24" cy="24" r="22" fill="none" stroke="rgba(255,255,255,0.12)" strokeWidth="1" />
-                <text x="24" y="8" textAnchor="middle" fill="#98a1b5" fontSize="6" fontFamily="monospace">N</text>
-                <text x="42" y="26" textAnchor="middle" fill="#98a1b5" fontSize="6" fontFamily="monospace">E</text>
-                <text x="24" y="44" textAnchor="middle" fill="#98a1b5" fontSize="6" fontFamily="monospace">S</text>
-                <text x="6" y="26" textAnchor="middle" fill="#98a1b5" fontSize="6" fontFamily="monospace">W</text>
-                <line
-                    x1="24" y1="24"
-                    x2={24 + 14 * Math.sin((direction * Math.PI) / 180)}
-                    y2={24 - 14 * Math.cos((direction * Math.PI) / 180)}
-                    stroke="#4cb8ff"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                />
-                <circle cx="24" cy="24" r="2" fill="#4cb8ff" />
-            </svg>
         </div>
     );
 }
