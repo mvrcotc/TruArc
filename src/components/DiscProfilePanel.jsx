@@ -41,10 +41,10 @@ import {
 } from '../physics/discProfile';
 
 const TYPE_COLORS = {
-    'Distance Driver': '#ff3366',
-    'Fairway Driver': '#ff6b35',
-    'Midrange': '#00e5ff',
-    'Putter': '#00ff88',
+    'Distance Driver': '#ff7a90',
+    'Fairway Driver': '#f5a65b',
+    'Midrange': '#4cb8ff',
+    'Putter': '#34d399',
 };
 
 const CHART_W = 212;
@@ -71,7 +71,7 @@ export default function DiscProfilePanel({ disc }) {
 
     if (!disc || !profile) return null;
 
-    const accent = TYPE_COLORS[disc.type] ?? '#00e5ff';
+    const accent = TYPE_COLORS[disc.type] ?? '#4cb8ff';
     const top = projectPathToChart(profile.path, { width: CHART_W, height: CHART_H });
     const side = projectPathToHeightChart(profile.path, { width: HEIGHT_W, height: HEIGHT_H });
     const landing = top.points[top.points.length - 1];
@@ -82,38 +82,38 @@ export default function DiscProfilePanel({ disc }) {
 
     return (
         <motion.div
-            initial={{ opacity: 0, x: 20 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: 20 }}
-            transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-            className="glass-panel p-3 w-[252px]"
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 8 }}
+            transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
+            className="glass-panel p-3.5 w-[280px]"
         >
             {/* Header: disc identity + stability */}
             <div className="flex items-start justify-between gap-2 mb-2">
                 <div className="min-w-0">
                     <div className="flex items-center gap-1.5">
-                        <Disc3 size={13} style={{ color: accent }} className="shrink-0" />
-                        <span className="font-mono text-xs font-bold text-truarc-text truncate">{disc.name}</span>
+                        <div className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: accent }} />
+                        <span className="text-body font-semibold text-truarc-text truncate">{disc.name}</span>
                     </div>
-                    <div className="text-[9px] font-mono text-truarc-muted/70 mt-0.5 truncate">
+                    <div className="text-micro text-truarc-muted/70 mt-0.5 truncate">
                         {disc.brand}{disc.type ? ` · ${disc.type}` : ''}
                     </div>
                 </div>
                 <span
-                    className="text-[8px] font-mono font-bold px-1.5 py-0.5 rounded-full shrink-0 whitespace-nowrap"
-                    style={{ background: `${profile.stability.color}15`, color: profile.stability.color }}
+                    className="text-micro font-medium px-2 py-0.5 rounded-full shrink-0 whitespace-nowrap"
+                    style={{ background: `${profile.stability.color}1a`, color: profile.stability.color }}
                     title={`turn + fade = ${profile.stability.sum} (manufacturer's published numbers)`}
                 >
-                    {profile.stability.label.toUpperCase()}
+                    {profile.stability.label}
                 </span>
             </div>
 
             {/* Flight numbers — the manufacturer's claim */}
             <div className="grid grid-cols-4 gap-1 mb-2.5">
-                <FlightNumber label="Speed" value={disc.speed} color="#00e5ff" />
-                <FlightNumber label="Glide" value={disc.glide} color="#00ff88" />
-                <FlightNumber label="Turn" value={disc.turn} color="#4dd4ff" signed />
-                <FlightNumber label="Fade" value={disc.fade} color="#ff6b35" />
+                <FlightNumber label="Speed" value={disc.speed} />
+                <FlightNumber label="Glide" value={disc.glide} />
+                <FlightNumber label="Turn" value={disc.turn} signed />
+                <FlightNumber label="Fade" value={disc.fade} />
             </div>
 
             {/* Top-down flight chart.
@@ -123,12 +123,12 @@ export default function DiscProfilePanel({ disc }) {
                 landing marker (an overstable driver's finish lands exactly
                 on a top-corner caption). The bottom strip is always free —
                 every reference throw starts at bottom-centre by construction. */}
-            <div className="relative rounded-lg bg-truarc-bg/50 border border-truarc-border/30 overflow-hidden">
+            <div className="relative rounded-xl bg-black/25 border border-white/[0.05] overflow-hidden">
                 <svg width="100%" viewBox={`0 0 ${CHART_W} ${CHART_H + CHART_CAPTION_H}`} className="block">
                     {/* Tee line — the straight-ahead reference the curve is read against */}
                     <line
                         x1={CHART_W / 2} y1={10} x2={CHART_W / 2} y2={CHART_H - 10}
-                        stroke="#2a3a52" strokeWidth="1" strokeDasharray="3 4"
+                        stroke="rgba(255,255,255,0.14)" strokeWidth="1" strokeDasharray="3 4"
                     />
                     {/* Downrange gridlines at 25 / 50 / 75 % */}
                     {[0.25, 0.5, 0.75].map((f) => (
@@ -137,50 +137,64 @@ export default function DiscProfilePanel({ disc }) {
                             x1={10} x2={CHART_W - 10}
                             y1={CHART_H - 10 - f * (CHART_H - 20)}
                             y2={CHART_H - 10 - f * (CHART_H - 20)}
-                            stroke="#2a3a52" strokeWidth="0.5" strokeOpacity="0.5"
+                            stroke="rgba(255,255,255,0.07)" strokeWidth="0.5"
                         />
                     ))}
 
-                    {/* The flight itself */}
-                    <polyline
+                    {/* The flight itself — drawn in from the tee, keyed on
+                        the disc so switching discs re-runs the draw rather
+                        than snapping to a new shape. `key` is what forces
+                        the remount; without it framer would tween between
+                        two unrelated paths and produce a shape that is
+                        neither disc's real flight. */}
+                    <motion.polyline
+                        key={`${disc.brand}-${disc.name}`}
                         points={toPolylinePoints(top.points)}
                         fill="none"
                         stroke={accent}
                         strokeWidth="2"
                         strokeLinecap="round"
                         strokeLinejoin="round"
+                        initial={{ pathLength: 0, opacity: 0.5 }}
+                        animate={{ pathLength: 1, opacity: 1 }}
+                        transition={{ duration: 0.75, ease: [0.33, 1, 0.68, 1] }}
                     />
 
                     {/* Release point */}
-                    <circle cx={CHART_W / 2} cy={CHART_H - 10} r="2.5" fill="#8892b0" />
-                    {/* Landing */}
+                    <circle cx={CHART_W / 2} cy={CHART_H - 10} r="2.5" fill="#98a1b5" />
+                    {/* Landing — fades in as the path arrives */}
                     {landing && (
-                        <>
-                            <circle cx={landing.x} cy={landing.y} r="4" fill={accent} fillOpacity="0.25" />
+                        <motion.g
+                            key={`landing-${disc.brand}-${disc.name}`}
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            transition={{ delay: 0.6, duration: 0.3 }}
+                        >
+                            <circle cx={landing.x} cy={landing.y} r="4.5" fill={accent} fillOpacity="0.22" />
                             <circle cx={landing.x} cy={landing.y} r="2.5" fill={accent} />
-                        </>
+                        </motion.g>
                     )}
 
                     {/* Caption strip — exact numbers, since the drawing is
                         stretched sideways and not to scale. */}
-                    <text x={8} y={CHART_H + 10} fill="#8892b0" fillOpacity="0.55" fontSize="8" fontFamily="monospace">
+                    <text x={8} y={CHART_H + 10} fill="#98a1b5" fillOpacity="0.6" fontSize="9" fontFamily="monospace">
                         ←{lateralSpanFt.toFixed(0)}ft
                     </text>
-                    <text x={CHART_W / 2} y={CHART_H + 10} fill="#8892b0" fillOpacity="0.55" fontSize="8" fontFamily="monospace" textAnchor="middle">
+                    <text x={CHART_W / 2} y={CHART_H + 10} fill="#98a1b5" fillOpacity="0.6" fontSize="9" fontFamily="monospace" textAnchor="middle">
                         TEE
                     </text>
-                    <text x={CHART_W - 8} y={CHART_H + 10} fill="#8892b0" fillOpacity="0.55" fontSize="8" fontFamily="monospace" textAnchor="end">
+                    <text x={CHART_W - 8} y={CHART_H + 10} fill="#98a1b5" fillOpacity="0.6" fontSize="9" fontFamily="monospace" textAnchor="end">
                         {lateralSpanFt.toFixed(0)}ft→
                     </text>
                 </svg>
             </div>
 
             {/* Side-on height strip */}
-            <div className="relative mt-1.5 rounded-lg bg-truarc-bg/50 border border-truarc-border/30 overflow-hidden">
+            <div className="relative mt-2 rounded-xl bg-black/25 border border-white/[0.05] overflow-hidden">
                 <svg width="100%" viewBox={`0 0 ${HEIGHT_W} ${HEIGHT_H}`} className="block">
                     <line
                         x1={10} y1={HEIGHT_H - 6} x2={HEIGHT_W - 10} y2={HEIGHT_H - 6}
-                        stroke="#2a3a52" strokeWidth="1"
+                        stroke="rgba(255,255,255,0.10)" strokeWidth="1"
                     />
                     <polyline
                         points={toPolylinePoints(side.points)}
@@ -200,16 +214,16 @@ export default function DiscProfilePanel({ disc }) {
                     i.e. never above ~47 %, so the bottom-left corner is the
                     one the curve provably cannot reach. */}
                 <div className="absolute bottom-0.5 left-2 pointer-events-none">
-                    <span className="text-[8px] font-mono text-truarc-muted/50">SIDE VIEW</span>
+                    <span className="text-micro text-truarc-muted/45">SIDE VIEW</span>
                 </div>
             </div>
 
             {/* Derived numbers from the simulated reference flight */}
             <div className="grid grid-cols-3 gap-2 mt-2.5">
-                <MiniStat icon={<Ruler size={9} />} label="Distance" value={`${profile.distanceFt.toFixed(0)}`} unit="ft" color="#00e5ff" />
-                <MiniStat icon={<Mountain size={9} />} label="Apex" value={`${profile.apexFt.toFixed(0)}`} unit="ft" color="#ff6b35" />
+                <MiniStat icon={<Ruler size={11} />} label="Distance" value={`${profile.distanceFt.toFixed(0)}`} unit="ft" color="#4cb8ff" />
+                <MiniStat icon={<Mountain size={11} />} label="Apex" value={`${profile.apexFt.toFixed(0)}`} unit="ft" color="#f5a65b" />
                 <MiniStat
-                    icon={<TrendingUp size={9} />}
+                    icon={<TrendingUp size={11} />}
                     label="Finish"
                     value={finishSide === 'straight' ? '≈0' : `${Math.abs(finishFt).toFixed(0)}`}
                     unit={finishSide === 'straight' ? '' : finishSide === 'left' ? 'ft L' : 'ft R'}
@@ -217,7 +231,7 @@ export default function DiscProfilePanel({ disc }) {
                 />
             </div>
 
-            <p className="text-[8px] text-truarc-muted/50 leading-relaxed mt-2">
+            <p className="text-micro text-truarc-muted/45 leading-relaxed mt-2.5">
                 Reference throw — flat, full power, no wind. Independent of your
                 current throw settings. Chart is stretched sideways to fit; the
                 figures are exact.
@@ -226,14 +240,14 @@ export default function DiscProfilePanel({ disc }) {
     );
 }
 
-function FlightNumber({ label, value, color, signed }) {
+function FlightNumber({ label, value, signed }) {
     const shown = signed && value > 0 ? `+${value}` : `${value}`;
     return (
-        <div className="rounded-md bg-truarc-bg/40 border border-truarc-border/30 py-1 text-center">
-            <div className="font-mono text-[13px] font-bold tabular-nums leading-none" style={{ color }}>
+        <div className="rounded-lg bg-white/[0.03] py-1.5 text-center">
+            <div className="font-mono text-sm font-semibold text-truarc-text tabular-nums leading-none">
                 {shown}
             </div>
-            <div className="text-[7px] font-mono text-truarc-muted/60 tracking-wider uppercase mt-0.5">
+            <div className="text-micro text-truarc-muted/60 mt-1">
                 {label}
             </div>
         </div>
@@ -243,12 +257,12 @@ function FlightNumber({ label, value, color, signed }) {
 function MiniStat({ icon, label, value, unit, color }) {
     return (
         <div>
-            <div className="flex items-center gap-1 text-truarc-muted/60 mb-0.5">
-                <span style={{ color }}>{icon}</span>
-                <span className="text-[7px] font-mono tracking-wider uppercase">{label}</span>
+            <div className="flex items-center gap-1 mb-1">
+                <span style={{ color }} className="opacity-70">{icon}</span>
+                <span className="cad-label">{label}</span>
             </div>
-            <div className="font-mono text-[11px] font-bold tabular-nums" style={{ color }}>
-                {value}<span className="text-[8px] font-normal text-truarc-muted ml-0.5">{unit}</span>
+            <div className="font-mono text-value font-semibold tabular-nums" style={{ color }}>
+                {value}<span className="text-micro font-normal text-truarc-muted/70 ml-0.5">{unit}</span>
             </div>
         </div>
     );

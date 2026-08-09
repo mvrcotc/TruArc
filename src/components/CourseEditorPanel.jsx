@@ -24,12 +24,12 @@ import {
 import { EDIT_ACTIONS } from '../editor/holeEditState';
 
 const TOOLS = [
-    { id: 'tee', label: 'Tee', icon: Flag, color: '#aa66ff' },
-    { id: 'basket', label: 'Basket', icon: Target, color: '#00ff88' },
-    { id: 'ob', label: 'OB Vertex', icon: Ban, color: '#ff3366' },
-    { id: 'mando-left', label: 'Mando ←', icon: CornerDownRight, color: '#ff6b35' },
-    { id: 'mando-right', label: 'Mando →', icon: CornerDownRight, color: '#ffaa33' },
-    { id: 'dropzone', label: 'Dropzone', icon: MapPin, color: '#00e5ff' },
+    { id: 'tee', label: 'Tee', icon: Flag, color: '#a78bfa' },
+    { id: 'basket', label: 'Basket', icon: Target, color: '#34d399' },
+    { id: 'ob', label: 'OB Vertex', icon: Ban, color: '#ff6b7a' },
+    { id: 'mando-left', label: 'Mando ←', icon: CornerDownRight, color: '#f5a65b' },
+    { id: 'mando-right', label: 'Mando →', icon: CornerDownRight, color: '#f5a65b' },
+    { id: 'dropzone', label: 'Dropzone', icon: MapPin, color: '#4cb8ff' },
 ];
 
 export default function CourseEditorPanel({
@@ -58,7 +58,7 @@ export default function CourseEditorPanel({
                     <MapPin size={14} className="text-truarc-accent" />
                     <span className="cad-text text-xs">Course Editor</span>
                 </div>
-                <p className="text-[11px] text-truarc-muted leading-relaxed">
+                <p className="text-label text-truarc-muted leading-relaxed">
                     Select a course and hole (Courses panel) to start editing.
                 </p>
             </motion.div>
@@ -82,10 +82,10 @@ export default function CourseEditorPanel({
                     <span className="cad-text text-xs">Editing Hole {editState.holeNum}</span>
                 </div>
                 <span
-                    className="text-[9px] font-mono font-bold px-2 py-0.5 rounded-full"
+                    className="text-micro font-mono font-bold px-2 py-0.5 rounded-full"
                     style={{
-                        background: bothPlaced ? '#00ff8815' : '#ff6b3515',
-                        color: bothPlaced ? '#00ff88' : '#ff6b35',
+                        background: bothPlaced ? '#34d39915' : '#f5a65b15',
+                        color: bothPlaced ? '#34d399' : '#f5a65b',
                     }}
                     title={bothPlaced ? 'Saving will mark this basket as measured' : 'Place both a tee and a basket to mark this hole measured'}
                 >
@@ -94,7 +94,7 @@ export default function CourseEditorPanel({
             </div>
 
             {drawingOb && (
-                <div className="mb-3 p-2 rounded-md bg-truarc-warn/10 border border-truarc-warn/30 text-[10px] text-truarc-warn">
+                <div className="mb-3 p-2 rounded-lg bg-truarc-warn/10 border border-truarc-warn/30 text-micro text-truarc-warn">
                     Drawing OB polygon — {editState.activePolygon.length} vertex(es). Click the map to add more.
                 </div>
             )}
@@ -109,9 +109,9 @@ export default function CourseEditorPanel({
                             onToolChange(id);
                             if (id === 'ob' && !drawingOb) dispatch({ type: EDIT_ACTIONS.START_OB_POLYGON });
                         }}
-                        className={`flex items-center gap-1.5 px-2 py-1.5 rounded-md text-[10px] font-mono transition-all ${activeTool === id
+                        className={`flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-micro font-mono transition-all ${activeTool === id
                             ? 'border'
-                            : 'text-truarc-muted hover:text-truarc-text bg-truarc-bg/40 border border-transparent'
+                            : 'text-truarc-muted hover:text-truarc-text bg-white/[0.03] border border-transparent'
                             }`}
                         style={activeTool === id ? { background: `${color}15`, color, borderColor: `${color}40` } : undefined}
                     >
@@ -126,13 +126,13 @@ export default function CourseEditorPanel({
                     <button
                         onClick={() => dispatch({ type: EDIT_ACTIONS.FINISH_OB_POLYGON })}
                         disabled={editState.activePolygon.length < 3}
-                        className="flex-1 py-1.5 rounded-md bg-truarc-accent/20 border border-truarc-accent/40 text-truarc-accent text-[10px] font-mono font-bold hover:bg-truarc-accent/30 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                        className="flex-1 py-1.5 rounded-lg bg-truarc-accent/20 border border-truarc-accent/40 text-truarc-accent text-micro font-mono font-bold hover:bg-truarc-accent/30 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
                     >
                         Finish Polygon
                     </button>
                     <button
                         onClick={() => dispatch({ type: EDIT_ACTIONS.CANCEL_OB_POLYGON })}
-                        className="px-3 py-1.5 rounded-md bg-truarc-card/60 border border-truarc-border/40 text-truarc-muted text-[10px] font-mono hover:text-truarc-text transition-colors"
+                        className="px-3 py-1.5 rounded-lg bg-white/[0.04] border border-white/[0.07] text-truarc-muted text-micro font-mono hover:text-truarc-text transition-colors"
                     >
                         Cancel
                     </button>
@@ -164,13 +164,13 @@ export default function CourseEditorPanel({
                 <button
                     onClick={() => dispatch({ type: EDIT_ACTIONS.UNDO })}
                     disabled={editState.history.length === 0}
-                    className="flex-1 flex items-center justify-center gap-1 py-1.5 rounded-md bg-truarc-card/60 border border-truarc-border/40 text-truarc-muted text-[10px] font-mono hover:text-truarc-text disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                    className="flex-1 flex items-center justify-center gap-1 py-1.5 rounded-lg bg-white/[0.04] border border-white/[0.07] text-truarc-muted text-micro font-mono hover:text-truarc-text disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
                 >
                     <Undo2 size={11} /> Undo
                 </button>
                 <button
                     onClick={() => dispatch({ type: EDIT_ACTIONS.RESET })}
-                    className="flex-1 flex items-center justify-center gap-1 py-1.5 rounded-md bg-truarc-card/60 border border-truarc-border/40 text-truarc-muted text-[10px] font-mono hover:text-truarc-warn transition-colors"
+                    className="flex-1 flex items-center justify-center gap-1 py-1.5 rounded-lg bg-white/[0.04] border border-white/[0.07] text-truarc-muted text-micro font-mono hover:text-truarc-warn transition-colors"
                 >
                     <RotateCcw size={11} /> Reset
                 </button>
@@ -183,29 +183,29 @@ export default function CourseEditorPanel({
                 onClick={onSave}
                 disabled={saving || !signedIn}
                 title={!signedIn ? 'Sign in to save a draft' : undefined}
-                className="w-full flex items-center justify-center gap-1.5 py-2 mb-2 rounded-md bg-truarc-accent/20 border border-truarc-accent/40 text-truarc-accent text-[11px] font-mono font-bold hover:bg-truarc-accent/30 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                className="w-full flex items-center justify-center gap-1.5 py-2 mb-2 rounded-lg bg-truarc-accent/20 border border-truarc-accent/40 text-truarc-accent text-label font-mono font-bold hover:bg-truarc-accent/30 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
             >
                 <Save size={12} />
                 {saving ? 'Saving…' : 'Save Draft'}
             </button>
             {saveError && (
-                <div className="text-[9px] text-truarc-warn mb-2 flex items-start gap-1">
+                <div className="text-micro text-truarc-warn mb-2 flex items-start gap-1">
                     <Info size={10} className="mt-0.5 shrink-0" />
                     {saveError}
                 </div>
             )}
             {savedAt && !saveError && (
-                <div className="text-[9px] text-truarc-muted/70 mb-2">Saved {new Date(savedAt).toLocaleTimeString()}</div>
+                <div className="text-micro text-truarc-muted/70 mb-2">Saved {new Date(savedAt).toLocaleTimeString()}</div>
             )}
 
             <div className="flex gap-1.5">
                 <button
                     onClick={onExport}
-                    className="flex-1 flex items-center justify-center gap-1 py-1.5 rounded-md bg-truarc-card/60 border border-truarc-border/40 text-truarc-muted text-[10px] font-mono hover:text-truarc-text transition-colors"
+                    className="flex-1 flex items-center justify-center gap-1 py-1.5 rounded-lg bg-white/[0.04] border border-white/[0.07] text-truarc-muted text-micro font-mono hover:text-truarc-text transition-colors"
                 >
                     <Download size={11} /> Export
                 </button>
-                <label className="flex-1 flex items-center justify-center gap-1 py-1.5 rounded-md bg-truarc-card/60 border border-truarc-border/40 text-truarc-muted text-[10px] font-mono hover:text-truarc-text transition-colors cursor-pointer">
+                <label className="flex-1 flex items-center justify-center gap-1 py-1.5 rounded-lg bg-white/[0.04] border border-white/[0.07] text-truarc-muted text-micro font-mono hover:text-truarc-text transition-colors cursor-pointer">
                     <Upload size={11} /> Import
                     <input
                         type="file"
@@ -220,7 +220,7 @@ export default function CourseEditorPanel({
                 </label>
             </div>
 
-            <p className="text-[9px] text-truarc-muted/60 leading-relaxed mt-3">
+            <p className="text-micro text-truarc-muted/60 leading-relaxed mt-3">
                 "Save Draft" writes to your own Firestore profile — it does not
                 change the shared course database. Export the JSON to share it.
             </p>
@@ -237,7 +237,7 @@ function FeatureList({ label, items, renderLabel, onRemove }) {
                 {items.map((item, i) => (
                     <div
                         key={i}
-                        className="flex items-center justify-between px-2 py-1 rounded bg-truarc-bg/40 text-[10px] text-truarc-muted font-mono"
+                        className="flex items-center justify-between px-2 py-1 rounded bg-white/[0.03] text-micro text-truarc-muted font-mono"
                     >
                         <span>{renderLabel(item, i)}</span>
                         <button onClick={() => onRemove(i)} className="text-truarc-muted/60 hover:text-truarc-warn transition-colors">

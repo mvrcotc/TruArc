@@ -89,7 +89,7 @@ export default function CourseSearch({ isOpen, onClose, onSelectCourse }) {
                     >
                         <div className="glass-panel p-0 overflow-hidden">
                             {/* Search Input */}
-                            <div className="flex items-center gap-3 px-4 py-3 border-b border-truarc-border/30">
+                            <div className="flex items-center gap-3 px-4 py-3 border-b border-white/[0.06]">
                                 <Search size={18} className="text-truarc-accent" />
                                 <input
                                     ref={inputRef}
@@ -163,10 +163,10 @@ function CourseItem({ course, featured, onClick }) {
             />
             <div className="flex-1 min-w-0">
                 <div className="text-sm text-truarc-text font-medium truncate">{course.name}</div>
-                <div className="text-[11px] text-truarc-muted truncate">{course.location}</div>
+                <div className="text-label text-truarc-muted truncate">{course.location}</div>
             </div>
             {featured && (
-                <span className="text-[8px] font-mono text-truarc-green bg-truarc-green/10 px-1.5 py-0.5 rounded-full">
+                <span className="text-micro font-mono text-truarc-green bg-truarc-green/10 px-1.5 py-0.5 rounded-full">
                     FEATURED
                 </span>
             )}

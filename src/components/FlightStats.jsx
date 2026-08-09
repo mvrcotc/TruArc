@@ -6,6 +6,7 @@ import React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Target, ArrowDown, ArrowUp, Ruler, Mountain, Zap, Timer, Flag, Navigation, MapPin } from 'lucide-react';
 import { measure3DDistance } from '../utils/flightPhysics';
+import AnimatedNumber from './AnimatedNumber';
 
 export default function FlightStats({ flightData, measurement, mode, activeHole, activeCourse, onFlyToLanding }) {
     return (
@@ -26,15 +27,15 @@ export default function FlightStats({ flightData, measurement, mode, activeHole,
 // ─── HOLE INFO DISPLAY ──────────────────────────────────────
 
 function HoleDisplay({ hole, course }) {
-    const parColor = hole.par >= 4 ? '#ff3366' : '#00e5ff';
+    const parColor = hole.par >= 4 ? '#ff6b7a' : '#4cb8ff';
 
     return (
         <motion.div
-            initial={{ opacity: 0, x: 20 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: 20 }}
-            transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-            className="glass-panel p-3 min-w-[260px]"
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 8 }}
+            transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
+            className="glass-panel p-3.5 w-[280px]"
         >
             <div className="flex items-center justify-between mb-3">
                 <div className="flex items-center gap-2">
@@ -43,19 +44,16 @@ function HoleDisplay({ hole, course }) {
                         Hole {hole.num}
                     </span>
                     {course && (
-                        <span className="text-[10px] font-mono text-truarc-muted/60">
-                            — {course.name}
+                        <span className="text-micro text-truarc-muted/60 truncate max-w-[110px]">
+                            {course.name}
                         </span>
                     )}
                 </div>
                 <div className="flex items-center gap-1.5">
                     <DataQualityBadge dataQuality={hole.dataQuality} />
                     <span
-                        className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full"
-                        style={{
-                            background: parColor + '15',
-                            color: parColor,
-                        }}
+                        className="text-micro font-medium px-2 py-0.5 rounded-full"
+                        style={{ background: parColor + '1a', color: parColor }}
                     >
                         Par {hole.par}
                     </span>
@@ -65,10 +63,11 @@ function HoleDisplay({ hole, course }) {
             <div className="grid grid-cols-3 gap-3">
                 <StatBlock
                     label="Distance"
-                    value={hole.distanceFt.toFixed(1)}
+                    value={hole.distanceFt}
+                    decimals={1}
                     unit="ft"
                     subValue={`${(hole.distanceFt * 0.3048).toFixed(1)}m`}
-                    color="#00e5ff"
+                    color="#4cb8ff"
                     icon={<Ruler size={12} />}
                     large
                 />
@@ -77,7 +76,7 @@ function HoleDisplay({ hole, course }) {
                     label="Bearing"
                     value={hole.bearing || '—'}
                     unit="°"
-                    color="#aa66ff"
+                    color="#a78bfa"
                     icon={<Navigation size={12} />}
                     large
                 />
@@ -93,26 +92,26 @@ function HoleDisplay({ hole, course }) {
             </div>
 
             {hole.notes && (
-                <div className="mt-3 pt-2 border-t border-truarc-border/30">
-                    <div className="text-[10px] text-truarc-muted/80 leading-relaxed italic">
+                <div className="mt-3 pt-2.5 border-t border-white/[0.06]">
+                    <div className="text-micro text-truarc-muted/80 leading-relaxed italic">
                         "{hole.notes}"
                     </div>
                 </div>
             )}
 
-            <div className="mt-2 pt-2 border-t border-truarc-border/20">
+            <div className="mt-2 pt-2 border-t border-white/[0.06]">
                 <div className="flex items-center gap-4">
                     <div className="flex items-center gap-1">
-                        <div className="w-2 h-2 rounded-sm" style={{ background: '#aa66ff' }} />
-                        <span className="text-[9px] font-mono text-truarc-muted/60">TEE</span>
-                        <span className="text-[9px] font-mono text-truarc-muted/40">
+                        <div className="w-2 h-2 rounded-sm" style={{ background: '#a78bfa' }} />
+                        <span className="text-micro font-mono text-truarc-muted/70">TEE</span>
+                        <span className="text-micro font-mono text-truarc-muted/50">
                             {hole.tee.lat.toFixed(5)}, {hole.tee.lng.toFixed(5)}
                         </span>
                     </div>
                     <div className="flex items-center gap-1">
-                        <div className="w-2 h-2 rounded-full" style={{ background: '#00ff88' }} />
-                        <span className="text-[9px] font-mono text-truarc-muted/60">BASKET</span>
-                        <span className="text-[9px] font-mono text-truarc-muted/40">
+                        <div className="w-2 h-2 rounded-full" style={{ background: '#34d399' }} />
+                        <span className="text-micro font-mono text-truarc-muted/70">BASKET</span>
+                        <span className="text-micro font-mono text-truarc-muted/50">
                             {hole.basket.lat.toFixed(5)}, {hole.basket.lng.toFixed(5)}
                         </span>
                     </div>
@@ -129,11 +128,11 @@ function MeasurementDisplay({ measurement }) {
 
     return (
         <motion.div
-            initial={{ opacity: 0, x: 20 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: 20 }}
-            transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-            className="glass-panel p-3 min-w-[200px]"
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 8 }}
+            transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
+            className="glass-panel p-3.5 w-[280px]"
         >
             <div className="flex items-center gap-2 mb-3">
                 <Ruler size={14} className="text-truarc-accent" />
@@ -144,10 +143,11 @@ function MeasurementDisplay({ measurement }) {
                 {/* Distance - decimal precision */}
                 <StatBlock
                     label="Distance"
-                    value={measurement.distanceFt.toFixed(1)}
+                    value={measurement.distanceFt}
+                    decimals={1}
                     unit="ft"
                     subValue={`${measurement.distanceM.toFixed(1)}m`}
-                    color="#00e5ff"
+                    color="#4cb8ff"
                     icon={<Ruler size={12} />}
                 />
 
@@ -157,7 +157,7 @@ function MeasurementDisplay({ measurement }) {
                     value={`${isDownhill ? '' : '+'}${measurement.elevChangeFt.toFixed(1)}`}
                     unit="ft"
                     subValue={`${measurement.elevChangeM.toFixed(1)}m`}
-                    color={isDownhill ? '#00ff88' : '#ff6b35'}
+                    color={isDownhill ? '#34d399' : '#f5a65b'}
                     icon={isDownhill ? <ArrowDown size={12} /> : <ArrowUp size={12} />}
                 />
 
@@ -166,7 +166,7 @@ function MeasurementDisplay({ measurement }) {
                     label="Horizontal"
                     value={measurement.horizontalFt?.toFixed(1) ?? '—'}
                     unit="ft"
-                    color="#8892b0"
+                    color="#98a1b5"
                 />
 
                 {/* Bearing */}
@@ -174,20 +174,20 @@ function MeasurementDisplay({ measurement }) {
                     label="Bearing"
                     value={measurement.bearingDeg?.toFixed(1) ?? '—'}
                     unit="°"
-                    color="#8892b0"
+                    color="#98a1b5"
                 />
             </div>
 
             {/* Elevation indicator bar */}
             <div className="mt-3 flex items-center gap-2">
-                <div className="flex-1 h-1 bg-truarc-border/40 rounded-full overflow-hidden">
+                <div className="flex-1 h-1 bg-white/[0.07] rounded-full overflow-hidden">
                     <div
                         className="h-full rounded-full transition-all"
                         style={{
                             width: `${Math.min(100, Math.abs(measurement.elevChangeFt) / 2)}%`,
                             background: isDownhill
-                                ? 'linear-gradient(to right, #00ff88, #00e5ff)'
-                                : 'linear-gradient(to right, #ff6b35, #ff3366)',
+                                ? 'linear-gradient(to right, #34d399, #4cb8ff)'
+                                : 'linear-gradient(to right, #f5a65b, #ff6b7a)',
                         }}
                     />
                 </div>
@@ -208,43 +208,46 @@ function FlightDisplay({ data, onFlyToLanding }) {
 
     return (
         <motion.div
-            initial={{ opacity: 0, x: 20 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: 20 }}
-            transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-            className="glass-panel p-3 min-w-[240px]"
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 8 }}
+            transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
+            className="glass-panel p-3.5 w-[280px]"
         >
             <div className="flex items-center gap-2 mb-3">
-                <Target size={14} className={collision?.hit ? 'text-truarc-warn' : 'text-truarc-green'} />
+                <Target size={14} className={collision?.hit ? 'text-truarc-danger' : 'text-truarc-green'} />
                 <span className="cad-text">Flight Results</span>
             </div>
 
             <div className="grid grid-cols-3 gap-3">
                 <StatBlock
                     label="Distance"
-                    value={distFt.toFixed(1)}
+                    value={distFt}
+                    decimals={1}
                     unit="ft"
                     subValue={`${data.totalDistance.toFixed(1)}m`}
-                    color="#00e5ff"
+                    color="#4cb8ff"
                     icon={<Ruler size={12} />}
                     large
                 />
 
                 <StatBlock
                     label="Max Height"
-                    value={maxHeightFt.toFixed(1)}
+                    value={maxHeightFt}
+                    decimals={1}
                     unit="ft"
                     subValue={`${data.maxHeight.toFixed(1)}m`}
-                    color="#ff6b35"
+                    color="#f5a65b"
                     icon={<Mountain size={12} />}
                     large
                 />
 
                 <StatBlock
                     label="Flight Time"
-                    value={(data.points.length * 0.03).toFixed(1)}
+                    value={data.points.length * 0.03}
+                    decimals={1}
                     unit="s"
-                    color="#00ff88"
+                    color="#34d399"
                     icon={<Timer size={12} />}
                     large
                 />
@@ -257,14 +260,14 @@ function FlightDisplay({ data, onFlyToLanding }) {
 
             {/* Landing + Fly to landing */}
             {data.landing && (
-                <div className="mt-3 pt-2 border-t border-truarc-border/30 flex items-center justify-between gap-2">
-                    <div className="font-mono text-[10px] text-truarc-muted">
+                <div className="mt-3 pt-2.5 border-t border-white/[0.06] flex items-center justify-between gap-2">
+                    <div className="font-mono text-micro text-truarc-muted/70 tabular-nums">
                         {data.landing.lat.toFixed(5)}, {data.landing.lng.toFixed(5)}
                     </div>
                     {onFlyToLanding && (
                         <button
                             onClick={onFlyToLanding}
-                            className="text-[10px] font-medium text-truarc-accent hover:underline"
+                            className="text-micro font-medium text-truarc-accent px-2 py-1 -mr-1 rounded-md hover:bg-truarc-accent/[0.1] transition-colors duration-150"
                         >
                             View from here
                         </button>
@@ -291,9 +294,9 @@ function CollisionReadout({ collision, origin }) {
             }).distanceFt
             : null;
         return (
-            <div className="mt-3 pt-2 border-t border-truarc-border/30">
-                <div className="flex items-center gap-1.5 text-[11px] font-mono font-semibold" style={{ color: '#ff3366' }}>
-                    <Target size={11} />
+            <div className="mt-3 pt-2.5 border-t border-white/[0.06]">
+                <div className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 bg-truarc-danger/[0.08] text-label font-medium text-truarc-danger">
+                    <Target size={12} className="shrink-0" />
                     <span>
                         {contactDistFt != null ? `First tree at ${contactDistFt.toFixed(0)} ft` : 'Tree contact'}
                         {collision.firstContact.treeIndex != null ? ` (tree #${collision.firstContact.treeIndex})` : ' (unattributed)'}
@@ -313,9 +316,9 @@ function CollisionReadout({ collision, origin }) {
             }).distanceFt
             : null;
         return (
-            <div className="mt-3 pt-2 border-t border-truarc-border/30">
-                <div className="flex items-center gap-1.5 text-[11px] font-mono font-semibold" style={{ color: '#ffaa33' }}>
-                    <MapPin size={11} />
+            <div className="mt-3 pt-2.5 border-t border-white/[0.06]">
+                <div className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 bg-truarc-warn/[0.08] text-label font-medium text-truarc-warn">
+                    <MapPin size={12} className="shrink-0" />
                     <span>
                         {obDistFt != null ? `OB crossing at ${obDistFt.toFixed(0)} ft` : 'OB crossing'}
                     </span>
@@ -336,17 +339,17 @@ function CollisionReadout({ collision, origin }) {
     const threadedAGap = collision.clearanceFt < 0;
     const tight = collision.clearanceFt < 5;
     const close = collision.clearanceFt < 15;
-    const color = tight ? '#ff3366' : close ? '#ff6b35' : '#00ff88';
+    const color = tight ? '#ff6b7a' : close ? '#f5a65b' : '#34d399';
 
     return (
-        <div className="mt-3 pt-2 border-t border-truarc-border/30 flex items-center justify-between">
+        <div className="mt-3 pt-2.5 border-t border-white/[0.06] flex items-center justify-between">
             <span className="cad-label">Clearance</span>
-            <span className="font-mono font-bold text-xs" style={{ color }}>
+            <span className="font-mono font-semibold text-xs tabular-nums" style={{ color }}>
                 {threadedAGap
                     ? `${Math.abs(collision.clearanceFt).toFixed(1)} ft into canopy`
                     : `${collision.clearanceFt.toFixed(1)} ft`}
                 {collision.gapValidated && (
-                    <span className="ml-1.5 text-truarc-muted font-normal">
+                    <span className="ml-1.5 text-truarc-muted/70 font-normal">
                         {threadedAGap ? '— through a gap' : '— gap validated'}
                     </span>
                 )}
@@ -364,8 +367,8 @@ function CollisionReadout({ collision, origin }) {
 // only draws attention to data a player should weigh with more caution.
 
 const DATA_QUALITY_STYLES = {
-    estimated: { label: 'ESTIMATED', color: '#ff6b35' },
-    partial: { label: 'PARTIAL', color: '#ff3366' },
+    estimated: { label: 'ESTIMATED', color: '#f5a65b' },
+    partial: { label: 'PARTIAL', color: '#ff6b7a' },
 };
 
 function DataQualityBadge({ dataQuality }) {
@@ -373,8 +376,8 @@ function DataQualityBadge({ dataQuality }) {
     if (!style) return null;
     return (
         <span
-            className="text-[9px] font-mono font-bold px-1.5 py-0.5 rounded-full"
-            style={{ background: `${style.color}15`, color: style.color }}
+            className="text-micro font-medium px-2 py-0.5 rounded-full"
+            style={{ background: `${style.color}1a`, color: style.color }}
             title={dataQuality === 'estimated'
                 ? 'Basket position computed from tee + distance + bearing, not measured GPS'
                 : 'Incomplete data — this hole needs to be finished manually'}
@@ -386,24 +389,24 @@ function DataQualityBadge({ dataQuality }) {
 
 // ─── STAT BLOCK ─────────────────────────────────────────────
 
-function StatBlock({ label, value, unit, subValue, color, icon, large }) {
+function StatBlock({ label, value, unit, subValue, color, icon, large, decimals = 0 }) {
     return (
-        <div className="flex flex-col">
-            <div className="flex items-center gap-1 mb-0.5">
-                {icon && <span style={{ color }} className="opacity-60">{icon}</span>}
-                <span className="cad-label">{label}</span>
+        <div className="flex flex-col min-w-0">
+            <div className="flex items-center gap-1 mb-1">
+                {icon && <span style={{ color }} className="opacity-70 shrink-0">{icon}</span>}
+                <span className="cad-label truncate">{label}</span>
             </div>
             <div className="flex items-baseline gap-1">
-                <span
-                    className={`font-mono font-bold ${large ? 'text-lg' : 'text-sm'}`}
+                <AnimatedNumber
+                    value={value}
+                    decimals={decimals}
+                    className={`font-mono font-semibold tabular-nums ${large ? 'text-lg' : 'text-value'}`}
                     style={{ color }}
-                >
-                    {value}
-                </span>
-                <span className="text-truarc-muted text-[10px] font-mono">{unit}</span>
+                />
+                <span className="text-truarc-muted/70 text-micro font-mono">{unit}</span>
             </div>
             {subValue && (
-                <span className="text-truarc-muted text-[10px] font-mono mt-0.5">{subValue}</span>
+                <span className="text-truarc-muted/50 text-micro font-mono mt-0.5 tabular-nums">{subValue}</span>
             )}
         </div>
     );

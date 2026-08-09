@@ -14,33 +14,16 @@ import {
 import { getAllCourses, searchCourses, getCourseById } from '../data/courses';
 
 const DIFF_COLORS = {
-    'Championship': '#ff3366',
-    'Pro': '#ff6b35',
-    'Advanced': '#00e5ff',
-    'Intermediate': '#00ff88',
+    'Championship': '#ff6b7a',
+    'Pro': '#f5a65b',
+    'Advanced': '#4cb8ff',
+    'Intermediate': '#34d399',
 };
 
-const TAG_COLORS = {
-    'DGPT': '#ff3366',
-    'USDGC': '#ff6b35',
-    'Woods': '#00ff88',
-    'Open': '#00e5ff',
-    'Water': '#3388ff',
-    'Wind': '#8892b0',
-    'Elevation': '#ff6b35',
-    'Desert': '#ffaa33',
-    'Technical': '#aa66ff',
-    'European Open': '#ff3366',
-    'Dynamic Discs Open': '#ff6b35',
-    'Masters Cup': '#ff3366',
-    'Scenic': '#00e5ff',
-    'OB Heavy': '#ff3366',
-    'Punishing OB': '#ff3366',
-    'Extreme Elevation': '#ff6b35',
-    'Long': '#00e5ff',
-    'Hilly': '#ff6b35',
-    'Blind Shots': '#8892b0',
-};
+// Tags are METADATA, not status. They used to carry 8 arbitrary hues
+// (DGPT pink, Woods green, Elevation orange…), which put five competing
+// colors in a single card and made the one genuinely ordered signal —
+// difficulty — impossible to pick out. Now a single neutral chip.
 
 export default function CourseManager({
     onSelectCourse,
@@ -95,7 +78,7 @@ export default function CourseManager({
             className="glass-panel w-[320px] p-0 flex flex-col max-h-[calc(100vh-120px)] overflow-hidden"
         >
             {/* ─── Header ──────────────────────── */}
-            <div className="px-4 pt-4 pb-2 border-b border-truarc-border/20">
+            <div className="px-4 pt-4 pb-2 border-b border-white/[0.05]">
                 <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-2">
                         {view === 'holes' && (
@@ -112,7 +95,7 @@ export default function CourseManager({
                         </h2>
                     </div>
                     {view === 'holes' && selectedCourse && (
-                        <span className="text-[9px] font-mono px-2 py-0.5 rounded-full"
+                        <span className="text-micro font-mono px-2 py-0.5 rounded-full"
                             style={{
                                 background: DIFF_COLORS[selectedCourse.difficulty] + '15',
                                 color: DIFF_COLORS[selectedCourse.difficulty],
@@ -130,7 +113,7 @@ export default function CourseManager({
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
                         placeholder="Search courses, locations, tags..."
-                        className="w-full bg-truarc-bg/50 border border-truarc-border/20 rounded-md px-3 py-1.5 text-xs text-truarc-text placeholder:text-truarc-muted/40 font-mono outline-none focus:border-truarc-accent/40 transition-colors"
+                        className="w-full bg-black/25 border border-white/[0.05] rounded-lg px-3 py-1.5 text-xs text-truarc-text placeholder:text-truarc-muted/40 font-mono outline-none focus:border-truarc-accent/40 transition-colors"
                     />
                 )}
             </div>
@@ -174,31 +157,27 @@ export default function CourseManager({
                                     <div className="flex items-start gap-2 mb-2">
                                         <MapPin size={12} className="text-truarc-accent mt-0.5" />
                                         <div>
-                                            <div className="text-[11px] text-truarc-muted">{selectedCourse.location}</div>
-                                            <div className="text-[10px] text-truarc-muted/60">{selectedCourse.layout} Layout</div>
+                                            <div className="text-label text-truarc-muted">{selectedCourse.location}</div>
+                                            <div className="text-micro text-truarc-muted/60">{selectedCourse.layout} Layout</div>
                                         </div>
                                     </div>
-                                    <p className="text-[10px] text-truarc-muted/80 leading-relaxed">{selectedCourse.description}</p>
+                                    <p className="text-micro text-truarc-muted/80 leading-relaxed">{selectedCourse.description}</p>
                                     <div className="flex flex-wrap gap-1 mt-2">
                                         {selectedCourse.tags.map(tag => (
                                             <span
                                                 key={tag}
-                                                className="text-[8px] font-mono px-1.5 py-0.5 rounded-full"
-                                                style={{
-                                                    background: (TAG_COLORS[tag] || '#8892b0') + '15',
-                                                    color: TAG_COLORS[tag] || '#8892b0',
-                                                }}
+                                                className="text-micro px-2 py-0.5 rounded-full bg-white/[0.05] text-truarc-muted"
                                             >
-                                                {tag.toUpperCase()}
+                                                {tag}
                                             </span>
                                         ))}
                                     </div>
 
                                     {/* Course Stats */}
                                     <div className="grid grid-cols-3 gap-2 mt-3 pt-2 border-t border-truarc-border/15">
-                                        <StatBlock label="HOLES" value={selectedCourse.holes.length} color="#00e5ff" />
-                                        <StatBlock label="PAR" value={selectedCourse.par} color="#00ff88" />
-                                        <StatBlock label="TOTAL" value={`${(selectedCourse.totalDistanceFt / 1000).toFixed(1)}k'`} color="#ff6b35" />
+                                        <StatBlock label="HOLES" value={selectedCourse.holes.length} color="#4cb8ff" />
+                                        <StatBlock label="PAR" value={selectedCourse.par} color="#34d399" />
+                                        <StatBlock label="TOTAL" value={`${(selectedCourse.totalDistanceFt / 1000).toFixed(1)}k'`} color="#f5a65b" />
                                     </div>
                                 </div>
                             )}
@@ -209,7 +188,7 @@ export default function CourseManager({
                                     <div className="flex items-center justify-between px-2 py-1.5">
                                         <button
                                             onClick={handlePrevHole}
-                                            className="w-7 h-7 rounded-md bg-truarc-card/50 flex items-center justify-center text-truarc-muted hover:text-truarc-text hover:bg-truarc-card transition-colors"
+                                            className="w-7 h-7 rounded-lg bg-white/[0.04] flex items-center justify-center text-truarc-muted hover:text-truarc-text hover:bg-truarc-card transition-colors"
                                         >
                                             <ChevronLeft size={14} />
                                         </button>
@@ -220,14 +199,14 @@ export default function CourseManager({
                                         </div>
                                         <button
                                             onClick={handleNextHole}
-                                            className="w-7 h-7 rounded-md bg-truarc-card/50 flex items-center justify-center text-truarc-muted hover:text-truarc-text hover:bg-truarc-card transition-colors"
+                                            className="w-7 h-7 rounded-lg bg-white/[0.04] flex items-center justify-center text-truarc-muted hover:text-truarc-text hover:bg-truarc-card transition-colors"
                                         >
                                             <ChevronRight size={14} />
                                         </button>
                                     </div>
                                     <button 
                                         onClick={() => onStandOnTee?.(selectedCourse.holes.find(h => h.num === activeHoleNum))}
-                                        className="mx-2 py-1.5 rounded-md bg-truarc-accent/20 border border-truarc-accent/40 text-truarc-accent text-[10px] font-mono font-bold hover:bg-truarc-accent/30 transition-colors flex items-center justify-center gap-1.5"
+                                        className="mx-2 py-1.5 rounded-lg bg-truarc-accent/20 border border-truarc-accent/40 text-truarc-accent text-micro font-mono font-bold hover:bg-truarc-accent/30 transition-colors flex items-center justify-center gap-1.5"
                                     >
                                         <Crosshair size={12} />
                                         STAND ON TEE
@@ -262,13 +241,13 @@ function CourseCard({ course, isActive, onClick }) {
             onClick={onClick}
             className={`w-full text-left p-3 rounded-lg mb-1.5 transition-all group ${isActive
                     ? 'bg-truarc-accent/10 border border-truarc-accent/30'
-                    : 'hover:bg-truarc-card/50 border border-transparent'
+                    : 'hover:bg-white/[0.04] border border-transparent'
                 }`}
         >
             <div className="flex items-start justify-between mb-1">
                 <div className="flex-1 min-w-0">
                     <div className="text-sm font-medium text-truarc-text truncate">{course.name}</div>
-                    <div className="text-[10px] text-truarc-muted flex items-center gap-1 mt-0.5">
+                    <div className="text-micro text-truarc-muted flex items-center gap-1 mt-0.5">
                         <MapPin size={10} className="shrink-0" />
                         <span className="truncate">{course.location}</span>
                     </div>
@@ -282,7 +261,7 @@ function CourseCard({ course, isActive, onClick }) {
 
             <div className="flex items-center gap-2 mt-2">
                 <span
-                    className="text-[8px] font-mono px-1.5 py-0.5 rounded-full"
+                    className="text-micro font-mono px-1.5 py-0.5 rounded-full"
                     style={{
                         background: DIFF_COLORS[course.difficulty] + '15',
                         color: DIFF_COLORS[course.difficulty],
@@ -290,10 +269,10 @@ function CourseCard({ course, isActive, onClick }) {
                 >
                     {course.difficulty.toUpperCase()}
                 </span>
-                <span className="text-[9px] font-mono text-truarc-muted">
+                <span className="text-micro font-mono text-truarc-muted">
                     {course.holes.length}H · Par {course.par}
                 </span>
-                <span className="text-[9px] font-mono text-truarc-muted/60">
+                <span className="text-micro font-mono text-truarc-muted/60">
                     {(course.totalDistanceFt / 1000).toFixed(1)}k ft
                 </span>
             </div>
@@ -302,11 +281,7 @@ function CourseCard({ course, isActive, onClick }) {
                 {course.tags.slice(0, 4).map(tag => (
                     <span
                         key={tag}
-                        className="text-[7px] font-mono px-1 py-0.5 rounded-full opacity-70 group-hover:opacity-100 transition-opacity"
-                        style={{
-                            background: (TAG_COLORS[tag] || '#8892b0') + '10',
-                            color: TAG_COLORS[tag] || '#8892b0',
-                        }}
+                        className="text-micro px-2 py-0.5 rounded-full bg-white/[0.04] text-truarc-muted/80 group-hover:text-truarc-muted transition-colors"
                     >
                         {tag}
                     </span>
@@ -319,14 +294,14 @@ function CourseCard({ course, isActive, onClick }) {
 // ─── HOLE CARD ──────────────────────────────────────────────
 
 function HoleCard({ hole, isActive, onClick }) {
-    const parColor = hole.par >= 4 ? '#ff3366' : hole.par === 3 ? '#00e5ff' : '#00ff88';
+    const parColor = hole.par >= 4 ? '#ff6b7a' : hole.par === 3 ? '#4cb8ff' : '#34d399';
 
     return (
         <button
             onClick={onClick}
             className={`w-full text-left px-3 py-2.5 rounded-lg transition-all group ${isActive
                     ? 'bg-truarc-accent/10 border border-truarc-accent/30'
-                    : 'hover:bg-truarc-card/40 border border-transparent'
+                    : 'hover:bg-white/[0.04] border border-transparent'
                 }`}
         >
             <div className="flex items-center gap-3">
@@ -335,8 +310,8 @@ function HoleCard({ hole, isActive, onClick }) {
                     className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-mono font-bold shrink-0 ${isActive ? 'ring-1 ring-truarc-accent/50' : ''
                         }`}
                     style={{
-                        background: isActive ? '#00e5ff20' : '#1a223510',
-                        color: isActive ? '#00e5ff' : '#8892b0',
+                        background: isActive ? '#4cb8ff20' : '#1a223510',
+                        color: isActive ? '#4cb8ff' : '#98a1b5',
                     }}
                 >
                     {hole.num}
@@ -349,7 +324,7 @@ function HoleCard({ hole, isActive, onClick }) {
                             {hole.distanceFt} ft
                         </span>
                         <span
-                            className="text-[9px] font-mono px-1.5 py-0.5 rounded-full"
+                            className="text-micro font-mono px-1.5 py-0.5 rounded-full"
                             style={{
                                 background: parColor + '15',
                                 color: parColor,
@@ -359,8 +334,8 @@ function HoleCard({ hole, isActive, onClick }) {
                         </span>
                         {hole.dataQuality === 'estimated' && (
                             <span
-                                className="text-[8px] font-mono px-1 py-0.5 rounded-full text-truarc-warn/80"
-                                style={{ background: '#ff6b3515' }}
+                                className="text-micro font-mono px-1 py-0.5 rounded-full text-truarc-warn/80"
+                                style={{ background: '#f5a65b15' }}
                                 title="Basket position estimated from tee + distance + bearing, not measured GPS"
                             >
                                 EST
@@ -368,7 +343,7 @@ function HoleCard({ hole, isActive, onClick }) {
                         )}
                     </div>
                     {hole.notes && (
-                        <div className="text-[10px] text-truarc-muted/70 mt-0.5 truncate">
+                        <div className="text-micro text-truarc-muted/70 mt-0.5 truncate">
                             {hole.notes}
                         </div>
                     )}
@@ -391,7 +366,7 @@ function HoleCard({ hole, isActive, onClick }) {
 function StatBlock({ label, value, color }) {
     return (
         <div className="text-center">
-            <div className="text-[9px] font-mono text-truarc-muted/60 tracking-wider">{label}</div>
+            <div className="text-micro font-mono text-truarc-muted/60 tracking-wider">{label}</div>
             <div className="text-sm font-mono font-bold" style={{ color }}>{value}</div>
         </div>
     );

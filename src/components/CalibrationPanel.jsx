@@ -50,13 +50,13 @@ export default function CalibrationPanel({ courseId = 'default', onOffsetChange,
                 </div>
                 <button onClick={handleReset} className="btn-ghost flex items-center gap-1">
                     <RotateCcw size={12} />
-                    <span className="text-[10px]">Reset</span>
+                    <span className="text-micro">Reset</span>
                 </button>
             </div>
 
             {/* LiDAR overlay toggle */}
             {onLidarToggle && (
-                <div className="flex items-center justify-between mb-3 p-2 rounded-md bg-truarc-bg/40 border border-truarc-border/20">
+                <div className="flex items-center justify-between mb-3 p-2 rounded-lg bg-white/[0.03] border border-white/[0.05]">
                     <div className="flex items-center gap-2">
                         <Scan size={14} className="text-truarc-accent" />
                         <span className="text-xs text-truarc-text">Show LiDAR overlay</span>
@@ -76,7 +76,7 @@ export default function CalibrationPanel({ courseId = 'default', onOffsetChange,
 
             {/* "True view" raw point cloud toggle — Section 3 step 4 */}
             {onTrueViewToggle && (
-                <div className="flex items-center justify-between mb-3 p-2 rounded-md bg-truarc-bg/40 border border-truarc-border/20">
+                <div className="flex items-center justify-between mb-3 p-2 rounded-lg bg-white/[0.03] border border-white/[0.05]">
                     <div className="flex items-center gap-2">
                         <Eye size={14} className="text-truarc-accent" />
                         <span className="text-xs text-truarc-text">True view (raw points)</span>
@@ -94,7 +94,7 @@ export default function CalibrationPanel({ courseId = 'default', onOffsetChange,
                 </div>
             )}
 
-            <p className="text-[11px] text-truarc-muted mb-3 leading-relaxed">
+            <p className="text-label text-truarc-muted mb-3 leading-relaxed">
                 Use arrow buttons to nudge the LiDAR overlay to align with satellite imagery.
             </p>
 
@@ -106,9 +106,9 @@ export default function CalibrationPanel({ courseId = 'default', onOffsetChange,
                         <button
                             key={s}
                             onClick={() => setStepSize(s)}
-                            className={`px-2 py-0.5 rounded text-[10px] font-mono transition-all ${stepSize === s
+                            className={`px-2 py-0.5 rounded text-micro font-mono transition-all ${stepSize === s
                                     ? 'bg-truarc-accent/20 text-truarc-accent border border-truarc-accent/30'
-                                    : 'text-truarc-muted hover:text-truarc-text bg-truarc-bg/50'
+                                    : 'text-truarc-muted hover:text-truarc-text bg-black/25'
                                 }`}
                         >
                             {s}m
@@ -125,8 +125,8 @@ export default function CalibrationPanel({ courseId = 'default', onOffsetChange,
                     <NudgeButton icon={<ArrowUp size={14} />} onClick={() => handleNudge('lat', 1)} label="N" />
                     <div />
                     <NudgeButton icon={<ArrowLeft size={14} />} onClick={() => handleNudge('lng', -1)} label="W" />
-                    <div className="w-9 h-9 rounded-md bg-truarc-bg/40 border border-truarc-border/20 flex items-center justify-center">
-                        <span className="text-[8px] font-mono text-truarc-muted">±{stepSize}m</span>
+                    <div className="w-9 h-9 rounded-lg bg-white/[0.03] border border-white/[0.05] flex items-center justify-center">
+                        <span className="text-micro font-mono text-truarc-muted">±{stepSize}m</span>
                     </div>
                     <NudgeButton icon={<ArrowRight size={14} />} onClick={() => handleNudge('lng', 1)} label="E" />
                     <div />
@@ -157,7 +157,7 @@ function NudgeButton({ icon, onClick, label, small }) {
     return (
         <button
             onClick={onClick}
-            className={`${small ? 'w-7 h-7' : 'w-9 h-9'} rounded-md bg-truarc-card/60 border border-truarc-border/40 
+            className={`${small ? 'w-7 h-7' : 'w-9 h-9'} rounded-lg bg-white/[0.04] border border-white/[0.07] 
         flex items-center justify-center text-truarc-muted hover:text-truarc-accent 
         hover:border-truarc-accent/40 hover:bg-truarc-accent/5 transition-all active:scale-90`}
             title={label}
@@ -171,7 +171,7 @@ function OffsetValue({ label, value, precision, unit = '°' }) {
     return (
         <div>
             <div className="cad-label">{label}</div>
-            <div className="font-mono text-[10px] text-truarc-text tabular-nums">
+            <div className="font-mono text-micro text-truarc-text tabular-nums">
                 {value >= 0 ? '+' : ''}{value.toFixed(precision)}{unit}
             </div>
         </div>

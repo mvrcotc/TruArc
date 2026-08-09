@@ -16,9 +16,9 @@ export default function FirebaseAuthBar() {
 
     if (user) {
         return (
-            <div className="flex items-center gap-2 border-l border-truarc-border/40 pl-3 ml-1">
+            <div className="flex items-center gap-2 border-l border-white/[0.07] pl-3 ml-1">
                 <span
-                    className="max-w-[100px] sm:max-w-[140px] truncate text-[10px] sm:text-xs text-truarc-muted hidden sm:inline"
+                    className="max-w-[100px] sm:max-w-[140px] truncate text-micro sm:text-xs text-truarc-muted hidden sm:inline"
                     title={user.email || user.uid}
                 >
                     {user.email || user.uid}
@@ -26,7 +26,7 @@ export default function FirebaseAuthBar() {
                 <button
                     type="button"
                     onClick={() => signOutUser()}
-                    className="btn-ghost flex items-center gap-1 px-2 py-1 rounded-md text-truarc-muted hover:text-truarc-text"
+                    className="btn-ghost flex items-center gap-1 px-2 py-1 rounded-lg text-truarc-muted hover:text-truarc-text"
                     title="Sign out"
                 >
                     <LogOut size={13} />
@@ -36,11 +36,11 @@ export default function FirebaseAuthBar() {
     }
 
     return (
-        <div className="border-l border-truarc-border/40 pl-3 ml-1">
+        <div className="border-l border-white/[0.07] pl-3 ml-1">
             <button
                 type="button"
                 onClick={() => signInWithGoogle()}
-                className="btn-ghost flex items-center gap-1.5 px-2 py-1 rounded-md text-xs text-truarc-muted hover:text-truarc-accent"
+                className="btn-ghost flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs text-truarc-muted hover:text-truarc-accent"
             >
                 <LogIn size={13} />
                 <span className="hidden sm:inline">Sign in</span>

@@ -273,7 +273,7 @@ export default function App() {
             <div className="tactical-grid absolute inset-0 z-10" />
 
             {/* Top Toolbar */}
-            <div className="absolute top-4 left-1/2 -translate-x-1/2 z-30">
+            <div className="absolute top-5 left-1/2 -translate-x-1/2 z-30">
                 <Toolbar
                     mode={mode}
                     onModeChange={handleModeChange}
@@ -283,7 +283,7 @@ export default function App() {
             </div>
 
             {/* Left Panel: Always mount all panels (use visibility) so DiscSelector never unmounts - fixes search bug */}
-            <div className="absolute top-24 left-4 z-20 pointer-events-auto">
+            <div className="absolute top-[104px] left-5 z-20 pointer-events-auto">
                 <div style={{ display: mode === 'throw' ? 'block' : 'none' }}>
                     <DiscSelector
                         selectedDisc={selectedDisc}
@@ -338,7 +338,7 @@ export default function App() {
                 DiscProfilePanel stacks below them: the live throw's results on
                 top, the selected disc's REFERENCE flight underneath. The column
                 scrolls rather than overflowing on short viewports. */}
-            <div className="absolute top-16 right-4 z-20 flex flex-col gap-2 items-end max-h-[calc(100vh-88px)] overflow-y-auto custom-scrollbar pointer-events-auto">
+            <div className="absolute top-[104px] right-5 z-20 flex flex-col gap-2.5 items-end max-h-[calc(100vh-128px)] overflow-y-auto custom-scrollbar pointer-events-auto pr-0.5">
                 <FlightStats
                     mode={mode}
                     flightData={flightData}
@@ -353,7 +353,7 @@ export default function App() {
             </div>
 
             {/* Floating Compass (Top Right, above stats) */}
-            <div className="absolute top-4 right-4 z-30 pointer-events-none">
+            <div className="absolute top-5 right-5 z-30 pointer-events-none">
                 <FloatingCompass bearing={viewState.bearing} pitch={viewState.pitch} />
             </div>
 
@@ -383,19 +383,19 @@ function CornerIndicators({ mode }) {
     };
 
     const modeColors = {
-        navigate: '#8892b0',
-        measure: '#00e5ff',
-        throw: '#ff6b35',
-        calibrate: '#00ff88',
-        course: '#aa66ff',
-        edit: '#ff3366',
+        navigate: '#98a1b5',
+        measure: '#4cb8ff',
+        throw: '#f5a65b',
+        calibrate: '#34d399',
+        course: '#a78bfa',
+        edit: '#ff6b7a',
     };
 
     return (
         <>
             {/* Top-Left Corner */}
-            <div className="absolute top-4 left-4 z-10 pointer-events-none">
-                <div className="w-8 h-8 border-l-2 border-t-2 rounded-tl-sm" style={{ borderColor: modeColors[mode] + '30' }} />
+            <div className="absolute top-5 left-5 z-10 pointer-events-none">
+                <div className="w-7 h-7 border-l border-t rounded-tl-md" style={{ borderColor: modeColors[mode] + '2e' }} />
             </div>
 
             {/* Top-Right Corner - Replaced by Compass, but keeping border style for consistency if desired. 
@@ -403,26 +403,21 @@ function CornerIndicators({ mode }) {
                 The compass is absolute top-4 right-4. The corner indicator is also top-4 right-4.
                 I will move the mode label down slightly.
             */}
-            <div className="absolute top-16 right-4 z-10 pointer-events-none flex flex-col items-end gap-1">
-                <div
-                    className="font-mono text-[10px] tracking-[0.3em] mr-1 opacity-50"
-                    style={{ color: modeColors[mode] }}
-                >
-                    {modeLabels[mode]}
-                </div>
-            </div>
 
-            {/* Bottom-Left Corner */}
-            <div className="absolute bottom-4 left-4 z-10 pointer-events-none">
-                <div className="w-8 h-8 border-l-2 border-b-2 rounded-bl-sm" style={{ borderColor: modeColors[mode] + '30' }} />
-                <div className="font-mono text-[9px] text-truarc-muted/40 mt-1">
-                    EPSG:4326
-                </div>
-            </div>
 
-            {/* Bottom-Right Corner */}
-            <div className="absolute bottom-4 right-4 z-10 pointer-events-none">
-                <div className="w-8 h-8 border-r-2 border-b-2 rounded-br-sm" style={{ borderColor: modeColors[mode] + '30' }} />
+            {/* Bottom-Left Corner. No bottom-RIGHT bracket: Mapbox's
+                attribution bar lives there and the two collided. */}
+            <div className="absolute bottom-5 left-5 z-10 pointer-events-none">
+                <div className="w-7 h-7 border-l border-b rounded-bl-md" style={{ borderColor: modeColors[mode] + '2e' }} />
+                {/* Mode label lives here, not top-right: it used to sit
+                    directly under the compass and collided with its
+                    heading badge. */}
+                <div className="mt-1.5 flex items-baseline gap-2">
+                    <span className="font-mono text-micro tracking-[0.28em] opacity-70" style={{ color: modeColors[mode] }}>
+                        {modeLabels[mode]}
+                    </span>
+                    <span className="font-mono text-micro text-truarc-muted/30">EPSG:4326</span>
+                </div>
             </div>
         </>
     );
