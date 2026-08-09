@@ -7,6 +7,7 @@
 
 import React, { useState, useRef, useReducer, useCallback, useEffect } from 'react';
 import { getCalibrationOffset } from './utils/calibrationOffset';
+import { loadBag, saveBag, loadSelectedDisc, saveSelectedDisc } from './utils/discBag';
 import { useAuth } from './context/AuthContext';
 import { holeEditReducer, createEditState, EDIT_ACTIONS } from './editor/holeEditState';
 import { exportHoleEdit, importHoleEdit } from './editor/courseEditExport';
@@ -30,7 +31,6 @@ export default function App() {
 
     // ─── STATE ──────────────────────────────────────────────────
     const [mode, setMode] = useState('navigate'); // navigate | measure | throw | calibrate | course | edit
-    const [selectedDisc, setSelectedDisc] = useState(null);
     const [viewState, setViewState] = useState({ bearing: 0, pitch: 60 });
     const [throwSettings, setThrowSettings] = useState({
         power: 80,
@@ -47,8 +47,22 @@ export default function App() {
     const [activeCourse, setActiveCourse] = useState(null);
     const [activeHole, setActiveHole] = useState(null);
 
-    // Disc bag
-    const [myBag, setMyBag] = useState([]);
+    // Disc bag — restored from localStorage on first render. A lazy
+    // initializer (not an effect) so the bag is never briefly empty
+    // before being repopulated, and storage is read exactly ONCE: the
+    // selection has to resolve against the same array the bag holds, not
+    // a second independently-loaded copy. See src/utils/discBag.js.
+    const [restored] = useState(() => {
+        const bag = loadBag();
+        return { bag, selected: loadSelectedDisc(bag) };
+    });
+    const [myBag, setMyBag] = useState(restored.bag);
+    const [selectedDisc, setSelectedDisc] = useState(restored.selected);
+
+    // Persist on change. Both store identity only, so a later correction
+    // to a disc's published flight numbers reaches every saved bag.
+    useEffect(() => { saveBag(myBag); }, [myBag]);
+    useEffect(() => { saveSelectedDisc(selectedDisc); }, [selectedDisc]);
 
     // LiDAR overlay
     const [lidarEnabled, setLidarEnabled] = useState(false);

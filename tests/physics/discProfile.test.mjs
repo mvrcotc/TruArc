@@ -344,6 +344,30 @@ describe('projectPathToHeightChart', () => {
     test('an empty path degrades to an empty projection', () => {
         assert.deepEqual(projectPathToHeightChart([], {}).points, []);
     });
+
+    test('no shipped disc\'s curve reaches the bottom-left corner', () => {
+        // DiscProfilePanel puts its "SIDE VIEW" caption there. The first
+        // attempt put it top-left on the reasoning that "the disc is
+        // released low" — true only relative to a tall apex. The strip
+        // rescales to each disc's own apex, so a flat midrange starts
+        // near half height and climbs straight through the top-left,
+        // which is exactly what shipped and had to be fixed. This pins
+        // the corner that is actually safe, so a change to the apex
+        // floor or release height fails here instead of in the UI.
+        const W = 212;
+        const H = 54;
+        const padX = 10;
+        const CAPTION_W = 56; // rendered width of the caption
+        const CAPTION_H = 12;
+        for (const disc of DISC_DATABASE) {
+            const { points } = projectPathToHeightChart(computeDiscProfile(disc).path, { width: W, height: H, padX });
+            for (const p of points) {
+                const inCaptionBox = p.x < padX + CAPTION_W && p.y > H - CAPTION_H;
+                assert.ok(!inCaptionBox,
+                    `${disc.name}: curve enters the caption box at (${p.x.toFixed(1)}, ${p.y.toFixed(1)})`);
+            }
+        }
+    });
 });
 
 describe('toPolylinePoints', () => {

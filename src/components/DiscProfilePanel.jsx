@@ -191,10 +191,15 @@ export default function DiscProfilePanel({ disc }) {
                         strokeLinecap="round"
                     />
                 </svg>
-                {/* Top-LEFT, not top-right: the disc is released low and
-                    climbs downrange, so the upper-left of a height strip is
-                    the one corner the curve can never reach. */}
-                <div className="absolute top-1 left-2 pointer-events-none">
+                {/* BOTTOM-left. Top-left seemed safe — "the disc is
+                    released low" — but that is only true relative to a
+                    tall apex. The strip scales to each disc's own apex, so
+                    a flat midrange (apex ~3 m, release 1.4 m) starts near
+                    half height and climbs straight through the top-left.
+                    Release height / apex is bounded by 1.4 / max(apex, 3),
+                    i.e. never above ~47 %, so the bottom-left corner is the
+                    one the curve provably cannot reach. */}
+                <div className="absolute bottom-0.5 left-2 pointer-events-none">
                     <span className="text-[8px] font-mono text-truarc-muted/50">SIDE VIEW</span>
                 </div>
             </div>
