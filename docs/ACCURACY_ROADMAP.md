@@ -390,10 +390,35 @@ incapable of per-tree geometry. A Mapbox `CustomLayerInterface` with Three.js re
 geometry generated from each tree's own measurements.
 
 **Build:**
-1. **Custom layer** (`src/map/TreeLayer.js`): Three.js scene sharing Mapbox's WebGL
-   context; the mercator-matrix camera sync is the one genuinely tricky part
-   (reference: Mapbox "add-3d-model" custom layer example, generalized to many
-   objects + terrain elevation offsets).
+1. **Custom layer + coordinate sync** — **✅ DONE.**
+   `src/map/mercatorTransform.js` is the transform as pure, dependency-free matrix
+   math, and `src/map/TreeLayer.js` is the `CustomLayerInterface` around it (context
+   sharing, per-frame matrix, lifecycle, disposal). Verified against **mapbox-gl's own
+   `MercatorCoordinate`**, which runs in Node with no GL context and no token — real
+   independent ground truth, not a re-derivation. 20 tests, CI-blocking
+   (`.github/workflows/map-tests.yml`). Four things worth carrying forward:
+   - **Scene frame is X=east, Y=up, Z=south (so NORTH is −Z), in metres, Y read as
+     absolute altitude.** Y-up was chosen over a geographer's ENU because Three.js
+     builds `CylinderGeometry` and `LatheGeometry` around the Y axis — exactly the
+     primitives step 2 needs — so trunks and lathed crowns need no corrective rotation.
+   - **The transform mirrors triangle winding, unavoidably.** The scene is
+     right-handed; mercator (east, south, up) is left-handed, so the determinant is
+     negative. Materials therefore need `DoubleSide` (or `BackSide`); without it trees
+     are culled and *invisible with no error anywhere*. Pinned by a test so the sign
+     isn't "fixed" later, silently inverting every normal.
+   - **Terrain exaggeration is load-bearing, not cosmetic.** MapCanvas ships
+     `exaggeration: 2.0`; Mapbox displaces its terrain mesh by that factor but hands
+     custom layers an unadjusted matrix, so a tree at true altitude would be **buried**
+     under the ground drawn beneath it. The layer reads `map.getTerrain()?.exaggeration`
+     per frame and applies it to altitude only. This is a rendering lie told
+     consistently to ground and trees so they agree on screen — anything *measuring*
+     elevation must still use 1.0 and true altitudes (§2.6 flags the same trap).
+   - **Found by testing against Mapbox rather than deriving:** Mapbox scales altitude by
+     the WGS84 **mean** radius (6371008.8 m), not the equatorial radius (6378137 m) that
+     its horizontal projection is defined on. The intuitive guess — which this file
+     originally shipped — makes every altitude 0.11 % wrong: a constant error no
+     horizontal test notices, worth ~20 cm on a 200 m hill, and invisible in a
+     screenshot.
 2. **Geometry from inventory:** per tree, lathe the `profile` slices into a crown
    mesh (conifer → cone-ish stack, deciduous → ellipsoid-ish) + trunk cylinder from
    `crownBaseM`. Merge into batched `InstancedMesh`-style buffers by form; target
@@ -406,12 +431,28 @@ geometry generated from each tree's own measurements.
 5. Remove the GLB `model` layer and the two Kenney assets. Disable Mapbox
    `show3dTrees` on courses that have LiDAR inventory (avoid double trees).
 
+**Handoff for step 2.** `TreeLayer.buildTreeMesh()` is a deliberate placeholder — one
+crude cylinder per tree, present only so the transform can be eyeballed on a real map.
+It should be replaced with: `profile` lathed into a crown (scaled by `crown_radius_m`,
+spanning `crown_base_m` → `height_m`), a trunk below the crown base, batching by `form`,
+and distance LOD. Positioning, lighting, context sharing, the matrix, and disposal are
+finished and can be left alone. Keep `DoubleSide` on every material.
+
+**Verification gap, stated plainly:** no Mapbox token was available, so the layer has
+**never been drawn on a real map**. The math beneath it is verified exactly and the GL
+plumbing follows Mapbox's documented contract, but "the trees appear in the right place
+on screen" is unconfirmed. First run with a token is the real test; the three most
+likely failure points are flagged at their sites in `TreeLayer.js` (winding/culling,
+terrain exaggeration, and globe projection at low zoom — courses are viewed at z16+
+where Mapbox is always in mercator, so globe should not arise in practice).
+
 **Acceptance:** Maple Hill hole 2 ("tight tunnel through pines") is visually
 recognizable against a photo/satellite view; 60 fps on a mid-range laptop; trees stay
-put under rotate/pitch/zoom and terrain.
+put under rotate/pitch/zoom and terrain. **Not yet met** — needs step 2's real geometry
+plus a token-enabled run.
 
 **Model:** **Opus 5** for step 1 (coordinate sync — same class of frame math that
-burned this repo before). **Sonnet 5** for steps 2–5.
+burned this repo before) — **done**. **Sonnet 5** for steps 2–5.
 Estimated size: 1 session Opus, 2 sessions Sonnet.
 
 ---

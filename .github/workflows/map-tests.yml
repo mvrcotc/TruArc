@@ -1,0 +1,44 @@
+name: Map Coordinate Sync
+
+# Tests for src/map/ — the Mapbox ↔ Three.js coordinate transform that
+# places the LiDAR tree inventory on the map (Section 3, step 1 of
+# docs/ACCURACY_ROADMAP.md).
+#
+# Blocking. These are exact-math tests verified against mapbox-gl's own
+# MercatorCoordinate (which runs in Node with no GL context and no access
+# token), not judgment calls — a failure here means a sign, scale, or
+# axis convention has broken, and the symptom on a real map would be
+# trees silently placed in the wrong country, at the wrong altitude, or
+# culled into invisibility.
+#
+# NOT covered: whether the layer actually draws correctly on screen.
+# That needs a Mapbox token and a browser; see the verification note at
+# the top of src/map/TreeLayer.js.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/map/**'
+      - 'tests/map/**'
+      - 'package.json'
+  pull_request:
+    paths:
+      - 'src/map/**'
+      - 'tests/map/**'
+      - 'package.json'
+  workflow_dispatch: {}
+
+jobs:
+  coordinate-sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - run: npm ci
+
+      - name: Run coordinate sync tests
+        run: npm run test:map
