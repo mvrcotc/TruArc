@@ -384,6 +384,100 @@ export function attributeTreeAtHit(point, capsules, toleranceM = 1.5) {
     return best;
 }
 
+// ─── OB POLYGON CHECKING ────────────────────────────────────────────────
+
+/**
+ * Point-in-polygon using ray casting. Casts a ray horizontally to the
+ * right and counts boundary crossings — odd count means inside.
+ */
+function isPointInPolygon(point, polygon) {
+    const { lng, lat } = point;
+    let inside = false;
+    for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+        const xi = polygon[i].lng;
+        const yi = polygon[i].lat;
+        const xj = polygon[j].lng;
+        const yj = polygon[j].lat;
+
+        const intersect = ((yi > lat) !== (yj > lat))
+            && (lng < ((xj - xi) * (lat - yi) / (yj - yi) + xi));
+        if (intersect) inside = !inside;
+    }
+    return inside;
+}
+
+/**
+ * Check if a line segment crosses a polygon edge (in 2D).
+ * Returns { crosses: boolean, t: number } where t is the parameter
+ * along the segment [0,1] where crossing occurs, or null if no crossing.
+ */
+function lineSegmentCrossesPolygonEdge(p0, p1, edge0, edge1) {
+    const x0 = p0.lng, y0 = p0.lat;
+    const x1 = p1.lng, y1 = p1.lat;
+    const x2 = edge0.lng, y2 = edge0.lat;
+    const x3 = edge1.lng, y3 = edge1.lat;
+
+    const denom = (y3 - y2) * (x1 - x0) - (x3 - x2) * (y1 - y0);
+    if (Math.abs(denom) < 1e-10) return null; // parallel
+
+    const ua = ((x3 - x2) * (y0 - y2) - (y3 - y2) * (x0 - x2)) / denom;
+    const ub = ((x1 - x0) * (y0 - y2) - (y1 - y0) * (x0 - x2)) / denom;
+
+    if (ua >= 0 && ua <= 1 && ub >= 0 && ub <= 1) {
+        return { crosses: true, t: ua };
+    }
+    return null;
+}
+
+/**
+ * Find the first point where a trajectory enters an OB polygon.
+ * Returns { obIndex, point, pointIndex, t } where point is WGS84 coords,
+ * pointIndex is the trajectory segment, and t is fraction along that segment.
+ * Returns null if no OB crossing.
+ */
+export function findFirstOBCrossing(wgs84Points, obPolygons) {
+    if (!obPolygons || obPolygons.length === 0) return null;
+
+    let firstCrossing = null;
+    let earliestT = Infinity;
+
+    for (let i = 0; i < wgs84Points.length - 1; i++) {
+        const p0 = wgs84Points[i];
+        const p1 = wgs84Points[i + 1];
+
+        for (let obIdx = 0; obIdx < obPolygons.length; obIdx++) {
+            const polygon = obPolygons[obIdx];
+
+            // Check if trajectory crosses any edge of the polygon
+            let closestT = Infinity;
+            for (let j = 0; j < polygon.length; j++) {
+                const edge0 = polygon[j];
+                const edge1 = polygon[(j + 1) % polygon.length];
+                const crossing = lineSegmentCrossesPolygonEdge(p0, p1, edge0, edge1);
+                if (crossing && crossing.t < closestT) {
+                    closestT = crossing.t;
+                }
+            }
+
+            if (closestT < Infinity) {
+                // Track the earliest crossing across all segments and polygons
+                if (i + closestT < earliestT) {
+                    earliestT = i + closestT;
+                    firstCrossing = {
+                        obIndex: obIdx,
+                        pointIndex: i,
+                        t: closestT,
+                        lng: p0.lng + (p1.lng - p0.lng) * closestT,
+                        lat: p0.lat + (p1.lat - p0.lat) * closestT,
+                        altitude: p0.altitude + (p1.altitude - p0.altitude) * closestT,
+                    };
+                }
+            }
+        }
+    }
+    return firstCrossing;
+}
+
 // ─── SPATIAL INDEX ───────────────────────────────────────────────────
 //
 // The clearance pass is inherently (trajectory samples × trees), and
@@ -453,12 +547,14 @@ function lerp(a, b, t) {
  * @param {object} decoded - decodeVoxelGridBinary() result.
  * @param {Array} trees - TreeRecord[] (raw JSON, snake_case fields).
  * @param {Array} wgs84Points - trajectoryToWGS84() output, [{lng,lat,altitude}].
+ * @param {Array} obPolygons - OB polygons [{lng,lat}[]], or null.
  * @returns {{
  *   hit: boolean,
  *   firstContact: {lng, lat, altitude, pointIndex, t, treeIndex: number|null} | null,
  *   clearanceM: number|null, clearanceFt: number|null,
  *   gapValidated: boolean,
  *   nearMisses: {treeIndex: number, distanceM: number, distanceFt: number}[],
+ *   obCrossing: {obIndex: number, lng: number, lat: number, altitude: number, pointIndex: number, t: number} | null,
  * }}
  *
  * `clearanceM` is the minimum true 3-D distance from the flight line to
@@ -466,8 +562,11 @@ function lerp(a, b, t) {
  * 0.5 m, not "no data"), or null when no vegetation comes within
  * CLEARANCE_SEARCH_RADIUS_M. It can be negative on a hit — the disc was
  * inside a crown volume.
+ *
+ * `obCrossing` records where the flight path first crosses the boundary
+ * of an OB polygon, if at all.
  */
-export function analyzeCollision(header, decoded, trees, wgs84Points) {
+export function analyzeCollision(header, decoded, trees, wgs84Points, obPolygons = null) {
     const collisionPoints = wgs84Points.map((p) => toCollisionSpace(header, p));
     const capsules = buildTreeCapsules(header, trees);
 
@@ -508,6 +607,8 @@ export function analyzeCollision(header, decoded, trees, wgs84Points) {
         };
     }
 
+    const obCrossing = findFirstOBCrossing(wgs84Points, obPolygons);
+
     const nearMisses = [...nearMissByTree.entries()]
         .map(([treeIndex, distanceM]) => ({ treeIndex, distanceM, distanceFt: distanceM * METERS_TO_FEET }))
         .sort((a, b) => a.distanceM - b.distanceM);
@@ -526,5 +627,6 @@ export function analyzeCollision(header, decoded, trees, wgs84Points) {
         // gapValidated=true, hit=false.
         gapValidated: !voxelHit,
         nearMisses,
+        obCrossing,
     };
 }

@@ -14,7 +14,7 @@ import assert from 'node:assert/strict';
 import {
     traverseSegmentVoxels, findFirstVoxelHit, resamplePolyline,
     attributeTreeAtHit, buildTreeCapsules, toCollisionSpace, analyzeCollision,
-    truncateTrajectoryAtHit, capsuleSurfaceDistance,
+    truncateTrajectoryAtHit, capsuleSurfaceDistance, findFirstOBCrossing,
 } from '../../src/physics/collision.js';
 import { parseVoxelGridHeader, decodeVoxelGridBinary } from '../../src/physics/voxelGridFormat.js';
 
@@ -561,5 +561,136 @@ describe('analyzeCollision', () => {
             for (const cap of capsules) brute = Math.min(brute, capsuleSurfaceDistance(p, cap));
         }
         assert.ok(Math.abs(result.clearanceM - brute) < 1e-9, `indexed=${result.clearanceM} brute=${brute}`);
+    });
+});
+
+// ─── OB POLYGON CHECKING ────────────────────────────────────────────
+
+describe('OB polygon crossing detection', () => {
+    test('a trajectory that never enters an OB polygon returns null', () => {
+        const obPolygons = [
+            [
+                { lng: -71.8, lat: 42.27 },
+                { lng: -71.79, lat: 42.27 },
+                { lng: -71.79, lat: 42.28 },
+                { lng: -71.8, lat: 42.28 },
+            ],
+        ];
+        const wgs84Points = [
+            { lng: -72.0, lat: 42.29, altitude: 150 },
+            { lng: -72.0, lat: 42.29, altitude: 130 },
+        ];
+        const result = findFirstOBCrossing(wgs84Points, obPolygons);
+        assert.equal(result, null);
+    });
+
+    test('a trajectory starting outside and crossing into an OB polygon returns the crossing point', () => {
+        const obPolygons = [
+            [
+                { lng: -71.90, lat: 42.27 },
+                { lng: -71.88, lat: 42.27 },
+                { lng: -71.88, lat: 42.29 },
+                { lng: -71.90, lat: 42.29 },
+            ],
+        ];
+        // Trajectory from west (outside) to east (outside, but passes through)
+        const wgs84Points = [
+            { lng: -71.91, lat: 42.28, altitude: 150 },
+            { lng: -71.87, lat: 42.28, altitude: 130 },
+        ];
+        const result = findFirstOBCrossing(wgs84Points, obPolygons);
+        assert.ok(result !== null, 'should detect OB crossing from west to east');
+        assert.equal(result.obIndex, 0);
+        assert.equal(result.pointIndex, 0);
+        assert.ok(result.t > 0 && result.t < 1, `t=${result.t}`);
+        assert.ok(Number.isFinite(result.lng));
+        assert.ok(Number.isFinite(result.lat));
+        assert.ok(Number.isFinite(result.altitude));
+        // The crossing should be at the western boundary (lng ≈ -71.90)
+        assert.ok(result.lng >= -71.901 && result.lng <= -71.899, `lng=${result.lng} should be near west boundary`);
+    });
+
+    test('a trajectory starting inside an OB polygon returns the crossing point as it exits', () => {
+        const obPolygons = [
+            [
+                { lng: -71.90, lat: 42.27 },
+                { lng: -71.88, lat: 42.27 },
+                { lng: -71.88, lat: 42.29 },
+                { lng: -71.90, lat: 42.29 },
+            ],
+        ];
+        const wgs84Points = [
+            { lng: -71.89, lat: 42.28, altitude: 150 },
+            { lng: -71.87, lat: 42.28, altitude: 130 },
+        ];
+        const result = findFirstOBCrossing(wgs84Points, obPolygons);
+        assert.ok(result !== null, 'should detect OB crossing');
+        assert.equal(result.obIndex, 0);
+    });
+
+    test('analyzeCollision includes obCrossing in its result', () => {
+        const obPolygons = [
+            [
+                { lng: -71.90, lat: 42.27 },
+                { lng: -71.88, lat: 42.27 },
+                { lng: -71.88, lat: 42.29 },
+                { lng: -71.90, lat: 42.29 },
+            ],
+        ];
+        const wgs84Points = [
+            { lng: -71.91, lat: 42.28, altitude: 150 },
+            { lng: -71.87, lat: 42.28, altitude: 130 },
+        ];
+        const header = parseVoxelGridHeader(REAL_HEADER_JSON);
+        const decoded = decodeVoxelGridBinary(base64ToArrayBuffer(REAL_PACKED_B64));
+        const result = analyzeCollision(header, decoded, [], wgs84Points, obPolygons);
+        assert.ok(result.obCrossing !== null, 'should include obCrossing');
+        assert.equal(result.obCrossing.obIndex, 0);
+    });
+
+    test('multiple OB polygons are checked and the first crossing is returned', () => {
+        const obPolygons = [
+            // First polygon further east
+            [
+                { lng: -71.80, lat: 42.27 },
+                { lng: -71.78, lat: 42.27 },
+                { lng: -71.78, lat: 42.29 },
+                { lng: -71.80, lat: 42.29 },
+            ],
+            // Second polygon closer (west)
+            [
+                { lng: -71.90, lat: 42.27 },
+                { lng: -71.88, lat: 42.27 },
+                { lng: -71.88, lat: 42.29 },
+                { lng: -71.90, lat: 42.29 },
+            ],
+        ];
+        // Trajectory from far west to far east, crossing both
+        const wgs84Points = [
+            { lng: -71.95, lat: 42.28, altitude: 150 },
+            { lng: -71.75, lat: 42.28, altitude: 130 },
+        ];
+        const result = findFirstOBCrossing(wgs84Points, obPolygons);
+        assert.ok(result !== null, 'should detect first OB crossing');
+        // Should cross the closer one (obIndex 1, at lng -71.90) first
+        assert.equal(result.obIndex, 1);
+    });
+
+    test('no OB polygons returns null', () => {
+        const wgs84Points = [
+            { lng: -71.91, lat: 42.28, altitude: 150 },
+            { lng: -71.87, lat: 42.28, altitude: 130 },
+        ];
+        const result = findFirstOBCrossing(wgs84Points, null);
+        assert.equal(result, null);
+    });
+
+    test('empty OB polygon array returns null', () => {
+        const wgs84Points = [
+            { lng: -71.91, lat: 42.28, altitude: 150 },
+            { lng: -71.87, lat: 42.28, altitude: 130 },
+        ];
+        const result = findFirstOBCrossing(wgs84Points, []);
+        assert.equal(result, null);
     });
 });

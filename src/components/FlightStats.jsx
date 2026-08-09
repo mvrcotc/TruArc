@@ -275,7 +275,7 @@ function FlightDisplay({ data, onFlyToLanding }) {
     );
 }
 
-// ─── COLLISION READOUT (Section 4) ──────────────────────────────
+// ─── COLLISION READOUT (Section 4 & 5) ─────────────────────────────
 
 function CollisionReadout({ collision, origin }) {
     if (collision.hit && collision.firstContact) {
@@ -297,6 +297,27 @@ function CollisionReadout({ collision, origin }) {
                     <span>
                         {contactDistFt != null ? `First tree at ${contactDistFt.toFixed(0)} ft` : 'Tree contact'}
                         {collision.firstContact.treeIndex != null ? ` (tree #${collision.firstContact.treeIndex})` : ' (unattributed)'}
+                    </span>
+                </div>
+            </div>
+        );
+    }
+
+    // OB crossing warning (Section 5 — course geometry with OB polygons)
+    if (collision.obCrossing) {
+        const obDistFt = origin
+            ? measure3DDistance(origin, {
+                lng: collision.obCrossing.lng,
+                lat: collision.obCrossing.lat,
+                elevation: collision.obCrossing.altitude,
+            }).distanceFt
+            : null;
+        return (
+            <div className="mt-3 pt-2 border-t border-truarc-border/30">
+                <div className="flex items-center gap-1.5 text-[11px] font-mono font-semibold" style={{ color: '#ffaa33' }}>
+                    <MapPin size={11} />
+                    <span>
+                        {obDistFt != null ? `OB crossing at ${obDistFt.toFixed(0)} ft` : 'OB crossing'}
                     </span>
                 </div>
             </div>

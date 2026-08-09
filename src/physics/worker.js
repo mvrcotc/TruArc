@@ -47,6 +47,7 @@ import { analyzeCollision, truncateTrajectoryAtHit } from './collision.js';
 // silently skipped — a course without a processed voxel grid yet is an
 // expected state, not an error; see MapCanvas.jsx's fetch handling).
 let collisionData = null;
+let holeData = null;
 
 self.onmessage = (event) => {
     const data = event.data;
@@ -58,15 +59,18 @@ self.onmessage = (event) => {
                 decoded: decodeVoxelGridBinary(data.voxelBuffer),
                 trees: data.trees || [],
             };
+            holeData = data.hole || null;
             self.postMessage({ type: 'collisionDataLoaded', ok: true });
         } catch (err) {
             collisionData = null;
+            holeData = null;
             self.postMessage({ type: 'collisionDataLoaded', ok: false, error: err?.message ?? String(err) });
         }
         return;
     }
     if (data.type === 'clearCollisionData') {
         collisionData = null;
+        holeData = null;
         return;
     }
 
@@ -93,7 +97,8 @@ self.onmessage = (event) => {
 
         if (collisionData && origin) {
             const wgs84Points = trajectoryToWGS84(result.points, origin, bearingDeg || 0);
-            const collision = analyzeCollision(collisionData.header, collisionData.decoded, collisionData.trees, wgs84Points);
+            const obPolygons = holeData?.obPolygons || null;
+            const collision = analyzeCollision(collisionData.header, collisionData.decoded, collisionData.trees, wgs84Points, obPolygons);
             result = { ...result, collision };
             if (collision.hit && collision.firstContact) {
                 const truncated = truncateTrajectoryAtHit(result.points, collision.firstContact);

@@ -121,15 +121,16 @@ export async function simulateDiscFlightAsync(disc, throwParamsUI, wind, terrain
  * worker for collision detection. `voxelHeader` is the parsed
  * `{course}_voxels_header.json`, `voxelBuffer` the raw
  * `{course}_voxels.bin` ArrayBuffer (transferred — do not reuse it after
- * this call), `trees` the raw `{course}_trees.json`'s `trees` array.
+ * this call), `trees` the raw `{course}_trees.json`'s `trees` array,
+ * `hole` the active hole's data (for OB polygon checking).
  * Returns false (a no-op) when no Worker is available in this
  * environment — collision detection is simply unavailable then, same as
  * any other worker-only feature degrading gracefully.
  */
-export function loadCourseCollisionData(voxelHeader, voxelBuffer, trees) {
+export function loadCourseCollisionData(voxelHeader, voxelBuffer, trees, hole = null) {
     const w = getWorker();
     if (!w) return false;
-    w.postMessage({ type: 'loadCollisionData', voxelHeader, voxelBuffer, trees }, [voxelBuffer]);
+    w.postMessage({ type: 'loadCollisionData', voxelHeader, voxelBuffer, trees, hole }, [voxelBuffer]);
     return true;
 }
 

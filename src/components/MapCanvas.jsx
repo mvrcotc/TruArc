@@ -1147,7 +1147,7 @@ const MapCanvas = forwardRef(({ onMeasure, onFlightComplete, onMove, selectedDis
                 if (ac.signal.aborted) return;
                 const shiftedHeader = applyOffsetToVoxelHeader(voxelHeader, offset);
                 const shiftedTrees = applyOffsetToTrees(treesData.trees || [], offset);
-                loadCourseCollisionData(shiftedHeader, voxelBuffer, shiftedTrees);
+                loadCourseCollisionData(shiftedHeader, voxelBuffer, shiftedTrees, activeHole);
             })
             .catch((err) => {
                 if (err.name === 'AbortError') return;
@@ -1160,7 +1160,7 @@ const MapCanvas = forwardRef(({ onMeasure, onFlightComplete, onMove, selectedDis
             });
 
         return () => ac.abort();
-    }, [activeCourse?.id, calibrationOffset]);
+    }, [activeCourse?.id, activeHole, calibrationOffset]);
 
     // ─── "TRUE VIEW" POINT CLOUD (Section 3, step 4) ──────────────
     //
