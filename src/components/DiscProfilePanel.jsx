@@ -1,66 +1,55 @@
 /**
  * ╔══════════════════════════════════════════════════════════════════╗
- * ║  DiscProfileSection — "What does this disc do naturally?"        ║
+ * ║  Disc flight profile — chart, and the detail beneath it          ║
  * ╚══════════════════════════════════════════════════════════════════╝
  *
- * A readout of the SELECTED disc: its published flight numbers, its
- * stability, and a top-down chart of the flight it produces on a
- * reference throw — plus a side-on height strip, because "gets there
- * flat" and "gets there on a floaty hyzer" are different shots and the
- * top-down view cannot tell them apart.
+ * Three exports, deliberately split so ThrowPanel can PIN the important
+ * half and let the rest scroll:
  *
- * Content-only (no glass-panel wrapper, no fixed width) — embedded
- * directly inside ThrowPanel.jsx's unified right-hand bar, below the
- * bag/throw-settings/flight-results it shares that panel with, rather
- * than floating as its own separate card.
+ *   useDiscProfile(disc, throwSettings, wind)
+ *       Runs the simulation once and memoizes it. Both sections below
+ *       take the resulting `profile`, so rendering them together costs
+ *       one simulation, not two.
+ *   DiscProfileChart  — disc identity, flight numbers, the top-down
+ *       flight chart, and the headline figures. This is what must stay
+ *       on screen while the throw sliders are dragged, so ThrowPanel
+ *       renders it in a non-scrolling region.
+ *   DiscProfileDetail — the side-on height strip and the explanatory
+ *       note. Genuinely useful, but secondary: it scrolls.
  *
- * All the physics lives in src/physics/discProfile.js (pure, no React,
- * fully tested in tests/physics/discProfile.test.mjs). This component
- * only memoizes that call and draws SVG, so there is no simulation
- * behaviour here to test separately.
+ * ── IT TRACKS THE PLAYER'S SETTINGS, AND SAYS WHICH IT IS ────────────
+ * The chart simulates whatever the throw settings and wind actually
+ * say, so dragging a slider redraws the flight — that is the whole
+ * point of it sitting against those sliders. It used to be pinned to a
+ * fixed reference throw (flat, full power, no wind).
  *
- * ── IT NOW TRACKS THE PLAYER'S SETTINGS, AND SAYS WHICH IT IS ────────
- * This chart used to be pinned to a fixed reference throw (flat, full
- * power, no wind) and deliberately ignored the sliders. It now
- * simulates whatever the throw settings and wind actually say, so
- * dragging a slider redraws the flight — that is the whole point of
- * sitting beside those sliders.
- *
- * The two readings are still different CLAIMS and must never be
- * conflated: the reference throw describes the DISC (comparable across
- * discs, which is what the stability label is derived for), while this
- * describes THIS THROW. `profile.isReferenceThrow` says which one is on
- * screen and the footer states it in words. `ThrowPanel`'s "Reset"
- * button returns the sliders to the app default so a player who has
- * dragged things somewhere strange can get back to a known baseline.
+ * The two readings are different CLAIMS and must never be conflated:
+ * the reference throw describes the DISC (comparable across discs,
+ * which is what the stability label is derived from), while the live
+ * one describes THIS THROW. `profile.isReferenceThrow` says which is on
+ * screen and DiscProfileDetail states it in words.
  *
  * Aim angle is excluded on purpose — see `throwSpecFieldsFromUI` in
- * discProfile.js. It rotates the whole flight rather than changing its
- * shape, and the chart's vertical axis IS the aim line.
+ * discProfile.js. It rotates the whole flight rather than reshaping it,
+ * and the chart's vertical axis IS the aim line.
  *
  * ── THE CHART IS ANISOTROPIC, AND SAYS SO ────────────────────────────
- * A 350 ft drive with 45 ft of lateral movement cannot be drawn to scale
- * in a narrow rail. Lateral is stretched relative to downrange, the same
- * way every published flight chart does it. The axis captions carry the
- * true distances in feet so the numbers stay exact even though the
- * drawing is not to scale.
+ * A 350 ft drive with 45 ft of lateral movement cannot be drawn to
+ * scale in a narrow rail. Lateral is stretched relative to downrange,
+ * the same way every published flight chart does it; the axis captions
+ * carry the true distances so the numbers stay exact.
  *
  * ── AND IT MUST FIT BESIDE THE SLIDERS ───────────────────────────────
- * The SVGs render at `width:100%`, so a viewBox narrower than the column
- * is magnified and the chart grows taller in proportion. Sizing the
- * viewBox to the real column width (see CHART_DIMS in discProfile.js)
- * keeps the rendered height equal to the declared height, which is what
- * keeps the chart and the throw settings on screen together — the whole
- * reason the chart sits here.
- *
- * NOT visually verified in a browser — this environment's egress policy
- * blocks api.mapbox.com, so the app shell renders but the map behind it
- * does not (same standing gap as Sections 3/4/5).
+ * The SVGs render at `width:100%`, so a viewBox narrower than the
+ * column is magnified and the chart grows taller in proportion. Sizing
+ * the viewBox to the real column width (CHART_DIMS in discProfile.js)
+ * keeps rendered height equal to declared height, which is what lets
+ * the pinned region hold both the chart and four sliders at once.
  */
 
 import React, { useMemo } from 'react';
 import { motion } from 'framer-motion';
-import { Disc3, TrendingUp, Ruler, Mountain } from 'lucide-react';
+import { TrendingUp, Ruler, Mountain } from 'lucide-react';
 import {
     computeDiscProfile, projectPathToChart, projectPathToHeightChart, toPolylinePoints,
     CHART_DIMS,
@@ -81,22 +70,21 @@ const CHART_CAPTION_H = CHART_DIMS.captionH;
 const HEIGHT_W = CHART_DIMS.heightW;
 const HEIGHT_H = CHART_DIMS.heightH;
 
-// Interactive fidelity: the chart now re-simulates on every slider
-// frame, so it runs coarser than the app's production throw — measured
-// 4.73 ms → 2.19 ms per call. That is only legitimate because the
-// integrator converges: distance is identical to the fine setting, and
-// `tests/physics/discProfile.test.mjs` asserts the two agree to within
-// a foot so this can't silently degrade. 90-odd points is still far
-// more than a 212px-wide polyline can show.
+// Interactive fidelity: the chart re-simulates on every slider frame,
+// so it runs coarser than the app's production throw — measured
+// 4.73 ms → 2.19 ms per call. Legitimate only because the integrator
+// converges; `tests/physics/discProfile.test.mjs` asserts the coarse and
+// fine settings agree to within a foot so this can't silently degrade.
 const INTERACTIVE_SIM = { dt: 0.004, sampleEvery: 10 };
 
-export function DiscProfileSection({ disc, throwSettings, wind }) {
-    // Recomputed whenever the disc OR the throw changes — this chart is
-    // the live preview of the sliders sitting directly above it.
-    // Depends on primitives rather than the objects so an unrelated
-    // re-render that rebuilds an identical settings object doesn't pay
-    // for a fresh simulation.
-    const profile = useMemo(() => {
+/**
+ * One simulation per (disc × throw × wind), shared by both sections.
+ * Depends on primitives rather than the objects so an unrelated
+ * re-render that rebuilds an identical settings object doesn't pay for
+ * a fresh simulation.
+ */
+export function useDiscProfile(disc, throwSettings, wind) {
+    return useMemo(() => {
         if (!disc) return null;
         try {
             return computeDiscProfile(disc, {
@@ -115,12 +103,15 @@ export function DiscProfileSection({ disc, throwSettings, wind }) {
         throwSettings?.power, throwSettings?.releaseAngle, throwSettings?.noseAngle,
         wind?.speed, wind?.direction,
     ]);
+}
 
+// ─── PINNED: identity, numbers, flight chart, headline figures ───────
+
+export function DiscProfileChart({ disc, profile }) {
     if (!disc || !profile) return null;
 
     const accent = TYPE_COLORS[disc.type] ?? '#4cb8ff';
     const top = projectPathToChart(profile.path, { width: CHART_W, height: CHART_H });
-    const side = projectPathToHeightChart(profile.path, { width: HEIGHT_W, height: HEIGHT_H });
     const landing = top.points[top.points.length - 1];
 
     const lateralSpanFt = top.lateralSpanM * 3.28084;
@@ -128,12 +119,8 @@ export function DiscProfileSection({ disc, throwSettings, wind }) {
     const finishSide = Math.abs(finishFt) < 3 ? 'straight' : finishFt < 0 ? 'left' : 'right';
 
     return (
-        <motion.div
-            initial={{ opacity: 0, y: 6 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
-        >
-            {/* Header: disc identity + stability */}
+        <div>
+            {/* Disc identity + stability */}
             <div className="flex items-start justify-between gap-2 mb-2">
                 <div className="min-w-0">
                     <div className="flex items-center gap-1.5">
@@ -154,7 +141,7 @@ export function DiscProfileSection({ disc, throwSettings, wind }) {
             </div>
 
             {/* Flight numbers — the manufacturer's claim */}
-            <div className="grid grid-cols-4 gap-1 mb-2.5">
+            <div className="grid grid-cols-4 gap-1 mb-2">
                 <FlightNumber label="Speed" value={disc.speed} />
                 <FlightNumber label="Glide" value={disc.glide} />
                 <FlightNumber label="Turn" value={disc.turn} signed />
@@ -167,7 +154,7 @@ export function DiscProfileSection({ disc, throwSettings, wind }) {
                 label inside the plot area eventually collides with the
                 landing marker (an overstable driver's finish lands exactly
                 on a top-corner caption). The bottom strip is always free —
-                every reference throw starts at bottom-centre by construction. */}
+                every throw starts at bottom-centre by construction. */}
             <div className="relative rounded-xl bg-black/25 border border-white/[0.05] overflow-hidden">
                 <svg width="100%" viewBox={`0 0 ${CHART_W} ${CHART_H + CHART_CAPTION_H}`} className="block">
                     {/* Tee line — the straight-ahead reference the curve is read against */}
@@ -191,7 +178,9 @@ export function DiscProfileSection({ disc, throwSettings, wind }) {
                         than snapping to a new shape. `key` is what forces
                         the remount; without it framer would tween between
                         two unrelated paths and produce a shape that is
-                        neither disc's real flight. */}
+                        neither disc's real flight. Keyed on the DISC only,
+                        not the settings: a slider drag should track
+                        continuously, not restart the draw on every frame. */}
                     <motion.polyline
                         key={`${disc.brand}-${disc.name}`}
                         points={toPolylinePoints(top.points)}
@@ -222,20 +211,55 @@ export function DiscProfileSection({ disc, throwSettings, wind }) {
 
                     {/* Caption strip — exact numbers, since the drawing is
                         stretched sideways and not to scale. */}
-                    <text x={8} y={CHART_H + 10} fill="#98a1b5" fillOpacity="0.6" fontSize="9" fontFamily="monospace">
+                    <text x={8} y={CHART_H + 11} fill="#98a1b5" fillOpacity="0.6" fontSize="10" fontFamily="monospace">
                         ←{lateralSpanFt.toFixed(0)}ft
                     </text>
-                    <text x={CHART_W / 2} y={CHART_H + 10} fill="#98a1b5" fillOpacity="0.6" fontSize="9" fontFamily="monospace" textAnchor="middle">
+                    <text x={CHART_W / 2} y={CHART_H + 11} fill="#98a1b5" fillOpacity="0.6" fontSize="10" fontFamily="monospace" textAnchor="middle">
                         TEE
                     </text>
-                    <text x={CHART_W - 8} y={CHART_H + 10} fill="#98a1b5" fillOpacity="0.6" fontSize="9" fontFamily="monospace" textAnchor="end">
+                    <text x={CHART_W - 8} y={CHART_H + 11} fill="#98a1b5" fillOpacity="0.6" fontSize="10" fontFamily="monospace" textAnchor="end">
                         {lateralSpanFt.toFixed(0)}ft→
                     </text>
                 </svg>
             </div>
 
-            {/* Side-on height strip */}
-            <div className="relative mt-2 rounded-xl bg-black/25 border border-white/[0.05] overflow-hidden">
+            {/* Headline figures. A GRID, not a flex row: on one line
+                "Finish 111ft L" overflowed 288px and wrapped its unit
+                onto a second line, on top of the value. Fixed columns
+                can't wrap regardless of how large the numbers get. */}
+            <div className="grid grid-cols-3 gap-2 mt-2">
+                <MiniStat icon={<Ruler size={11} />} label="Dist" value={profile.distanceFt.toFixed(0)} unit="ft" color="#4cb8ff" />
+                <MiniStat icon={<Mountain size={11} />} label="Apex" value={profile.apexFt.toFixed(0)} unit="ft" color="#f5a65b" />
+                <MiniStat
+                    icon={<TrendingUp size={11} />}
+                    label="Finish"
+                    value={finishSide === 'straight' ? '≈0' : Math.abs(finishFt).toFixed(0)}
+                    unit={finishSide === 'straight' ? '' : finishSide === 'left' ? 'ft L' : 'ft R'}
+                    color={profile.stability.color}
+                />
+            </div>
+        </div>
+    );
+}
+
+// ─── SCROLLS: side-on height, and what the chart is claiming ─────────
+
+export function DiscProfileDetail({ disc, profile }) {
+    if (!disc || !profile) return null;
+
+    const accent = TYPE_COLORS[disc.type] ?? '#4cb8ff';
+    const side = projectPathToHeightChart(profile.path, { width: HEIGHT_W, height: HEIGHT_H });
+
+    return (
+        <motion.div
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
+        >
+            {/* Side-on height strip — "gets there flat" vs "gets there on
+                a floaty hyzer" are different shots the top-down view
+                cannot tell apart. */}
+            <div className="relative rounded-xl bg-black/25 border border-white/[0.05] overflow-hidden">
                 <svg width="100%" viewBox={`0 0 ${HEIGHT_W} ${HEIGHT_H}`} className="block">
                     <line
                         x1={10} y1={HEIGHT_H - 6} x2={HEIGHT_W - 10} y2={HEIGHT_H - 6}
@@ -263,25 +287,12 @@ export function DiscProfileSection({ disc, throwSettings, wind }) {
                 </div>
             </div>
 
-            {/* Derived numbers from the simulated reference flight */}
-            <div className="grid grid-cols-3 gap-2 mt-2.5">
-                <MiniStat icon={<Ruler size={11} />} label="Distance" value={`${profile.distanceFt.toFixed(0)}`} unit="ft" color="#4cb8ff" />
-                <MiniStat icon={<Mountain size={11} />} label="Apex" value={`${profile.apexFt.toFixed(0)}`} unit="ft" color="#f5a65b" />
-                <MiniStat
-                    icon={<TrendingUp size={11} />}
-                    label="Finish"
-                    value={finishSide === 'straight' ? '≈0' : `${Math.abs(finishFt).toFixed(0)}`}
-                    unit={finishSide === 'straight' ? '' : finishSide === 'left' ? 'ft L' : 'ft R'}
-                    color={profile.stability.color}
-                />
-            </div>
-
             {/* Which claim is on screen. These are different statements —
                 one about the disc, one about this throw — and the panel
                 must never let them blur together. */}
-            <p className="text-micro text-truarc-muted/45 leading-relaxed mt-2.5">
+            <p className="text-micro text-truarc-muted/45 leading-relaxed mt-2">
                 {profile.isReferenceThrow
-                    ? 'Reference throw — flat, full power, no wind. This is the disc\'s own character, comparable across discs.'
+                    ? 'Reference throw — flat, full power, no wind. The disc\'s own character, comparable across discs.'
                     : 'Your current throw settings and wind. Aim angle is excluded — it rotates the flight rather than reshaping it.'}
                 {' '}Chart is stretched sideways to fit; the figures are exact.
             </p>
@@ -292,11 +303,11 @@ export function DiscProfileSection({ disc, throwSettings, wind }) {
 function FlightNumber({ label, value, signed }) {
     const shown = signed && value > 0 ? `+${value}` : `${value}`;
     return (
-        <div className="rounded-lg bg-white/[0.03] py-1.5 text-center">
+        <div className="rounded-lg bg-white/[0.03] py-1 text-center">
             <div className="font-mono text-sm font-semibold text-truarc-text tabular-nums leading-none">
                 {shown}
             </div>
-            <div className="text-micro text-truarc-muted/60 mt-1">
+            <div className="text-micro text-truarc-muted/60 mt-0.5">
                 {label}
             </div>
         </div>
@@ -305,12 +316,12 @@ function FlightNumber({ label, value, signed }) {
 
 function MiniStat({ icon, label, value, unit, color }) {
     return (
-        <div>
-            <div className="flex items-center gap-1 mb-1">
-                <span style={{ color }} className="opacity-70">{icon}</span>
-                <span className="cad-label">{label}</span>
+        <div className="min-w-0">
+            <div className="flex items-center gap-1">
+                <span style={{ color }} className="opacity-70 shrink-0">{icon}</span>
+                <span className="cad-label truncate">{label}</span>
             </div>
-            <div className="font-mono text-value font-semibold tabular-nums" style={{ color }}>
+            <div className="font-mono text-body font-semibold tabular-nums whitespace-nowrap leading-tight" style={{ color }}>
                 {value}<span className="text-micro font-normal text-truarc-muted/70 ml-0.5">{unit}</span>
             </div>
         </div>

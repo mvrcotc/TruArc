@@ -31,7 +31,7 @@ import { Disc3, ChevronDown, Wind, Gauge, Briefcase, Search, Plus, X, RotateCcw 
 import { DISC_DATABASE } from '../utils/flightPhysics';
 import { DEFAULT_THROW_SETTINGS } from '../physics/throwerProfile';
 import { FlightResultsSection } from './FlightStats';
-import { DiscProfileSection } from './DiscProfilePanel';
+import { useDiscProfile, DiscProfileChart, DiscProfileDetail } from './DiscProfilePanel';
 
 const DISC_TYPES = ['Distance Driver', 'Fairway Driver', 'Midrange', 'Putter'];
 
@@ -50,9 +50,12 @@ export default function ThrowPanel({
 }) {
     const [showWind, setShowWind] = useState(false);
     // Collapsed by default: a player picks one disc and then works the
-    // sliders, so an always-open bag list mostly serves to push the
-    // flight chart off-screen. See the layout comment below.
-    const [showBag, setShowBag] = useState(false);
+    // sliders, so an always-open bag list mostly serves to push
+    // everything else down. Opened when the bag is EMPTY, though —
+    // otherwise a first-time user has no visible way to add a disc,
+    // since the search box now lives inside this section. Evaluated
+    // once at mount so it never fights the user's own toggling.
+    const [showBag, setShowBag] = useState(() => myBag.length === 0);
     const [searchQuery, setSearchQuery] = useState('');
     const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: 0, width: 0 });
     const searchInputRef = useRef(null);
@@ -70,6 +73,11 @@ export default function ThrowPanel({
         () => onUpdateThrow({ ...DEFAULT_THROW_SETTINGS }),
         [onUpdateThrow],
     );
+
+    // ONE simulation, shared by the pinned chart and the scrolling
+    // detail below it. Computing it here rather than inside each section
+    // is what keeps the split from doubling the physics cost.
+    const profile = useDiscProfile(selectedDisc, throwSettings, wind);
 
     // Update dropdown position when search is active - use rAF to ensure layout is complete
     useEffect(() => {
@@ -124,128 +132,29 @@ export default function ThrowPanel({
             onClick={(e) => e.stopPropagation()}
             onPointerDown={(e) => e.stopPropagation()}
         >
-            {/* Sticky Search Section - always visible at top */}
-            <div className="shrink-0 sticky top-0 z-10 -m-4 p-4 pb-3 bg-truarc-card/95 backdrop-blur-md border-b border-white/[0.06] mb-0">
-                {/* Header */}
-                <div className="flex items-center gap-2 mb-2.5">
-                    <Disc3 size={15} className="text-truarc-accent" />
-                    <h2 className="cad-text">My Bag</h2>
-                </div>
-
-                {/* Search Bar */}
-                <div className="relative">
-                    <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-truarc-muted/70" />
-                    <input
-                        ref={searchInputRef}
-                        id="disc-search-input"
-                        type="text"
-                        autoComplete="off"
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
-                        onKeyDown={(e) => e.stopPropagation()}
-                        placeholder="Search discs to add…"
-                        className="w-full pl-9 pr-8 py-2 rounded-lg bg-white/[0.04] border border-white/[0.07] text-body text-truarc-text placeholder:text-truarc-muted/50 focus:outline-none focus:border-truarc-accent/40 focus:bg-white/[0.06] transition-colors duration-150"
-                    />
-                    {searchQuery && (
-                        <button
-                            type="button"
-                            onClick={() => setSearchQuery('')}
-                            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-truarc-muted/60 hover:text-truarc-text p-0.5 transition-colors"
-                        >
-                            <X size={14} />
-                        </button>
-                    )}
-                </div>
-
-                {/* Search Results - rendered via PORTAL to document.body so they're never clipped by parent overflow */}
-                {searchQuery.trim() && createPortal(
-                    <motion.div
-                        initial={{ opacity: 0, y: -4 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ duration: 0.15, ease: 'easeOut' }}
-                        className="fixed z-[9999] rounded-xl border border-white/[0.09] bg-truarc-surface shadow-elev-3 overflow-hidden"
-                        style={{
-                            top: dropdownPosition.top,
-                            left: dropdownPosition.left,
-                            width: dropdownPosition.width || 288,
-                            maxHeight: 224,
-                        }}
-                        onClick={(e) => e.stopPropagation()}
-                    >
-                        <div className="cad-label px-3 py-2 border-b border-white/[0.06]">
-                            Add to bag
-                        </div>
-                        <div className="flex flex-col max-h-[184px] overflow-y-auto custom-scrollbar">
-                            {searchResults.length === 0 ? (
-                                <div className="py-4 text-center text-body text-truarc-muted">No discs found</div>
-                            ) : (
-                                searchResults.map((disc) => (
-                                    <div
-                                        key={`${disc.brand}-${disc.name}`}
-                                        className="flex items-center justify-between py-2 px-3 hover:bg-white/[0.04] transition-colors duration-100"
-                                    >
-                                        <div className="flex items-center gap-2 min-w-0">
-                                            <div className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: TYPE_COLORS[disc.type] }} />
-                                            <span className="text-body font-medium text-truarc-text truncate">{disc.name}</span>
-                                            <span className="text-truarc-muted/70 shrink-0 text-micro">{disc.brand}</span>
-                                            <span className="font-mono text-micro text-truarc-muted/50 shrink-0">
-                                                {disc.speed}/{disc.glide}/{disc.turn}/{disc.fade}
-                                            </span>
-                                        </div>
-                                        <button
-                                            type="button"
-                                            onClick={(e) => addToBag(e, disc)}
-                                            disabled={isDiscInBag(disc)}
-                                            className={`shrink-0 flex items-center gap-1 px-2 py-1 rounded-md text-micro font-medium transition-all duration-150 ${isDiscInBag(disc)
-                                                ? 'text-truarc-muted/50 cursor-default'
-                                                : 'text-truarc-accent bg-truarc-accent/[0.08] hover:bg-truarc-accent/[0.16] active:scale-[0.97]'
-                                                }`}
-                                        >
-                                            <Plus size={12} />
-                                            {isDiscInBag(disc) ? 'In bag' : 'Add'}
-                                        </button>
-                                    </div>
-                                ))
-                            )}
-                        </div>
-                    </motion.div>,
-                    document.body
-                )}
-            </div>
-
-            {/* Scrollable content, ordered by how a throw actually
-                unfolds and by what a player looks at most:
-                  1. the selected disc + its live flight chart
-                  2. the settings that reshape that chart
-                  3. the results of the throw just taken
-                  4. the bag — LAST and collapsed by default, because a
-                     player picks one disc and then spends their time on
-                     the sliders; keeping an 18-disc list permanently
-                     expanded pushed the chart off-screen for the 95% of
-                     the session where nobody is switching discs. */}
-            <div className="flex-1 overflow-y-auto min-h-0 flex flex-col gap-3 custom-scrollbar">
-
-                {/* Selected disc + live flight chart. This is the thing
-                    the panel exists to show, so it sits at the top and is
-                    visible at all times. */}
+            {/* ═══ PINNED ═══════════════════════════════════════════
+                The chart and the sliders that reshape it must be
+                readable AT THE SAME TIME — adjusting a setting and then
+                scrolling up to see what it did is not a usable control
+                loop. So they live in a `shrink-0` region outside the
+                scroll container, which makes it structurally impossible
+                for them to scroll apart. Everything secondary is in the
+                scrolling region below. */}
+            <div className="shrink-0 flex flex-col gap-2.5">
                 {selectedDisc ? (
-                    <DiscProfileSection
-                        disc={selectedDisc}
-                        throwSettings={throwSettings}
-                        wind={wind}
-                    />
+                    <DiscProfileChart disc={selectedDisc} profile={profile} />
                 ) : (
-                    <div className="flex flex-col items-center justify-center py-8 rounded-xl border border-dashed border-white/[0.07] text-truarc-muted/50">
+                    <div className="flex flex-col items-center justify-center py-6 rounded-xl border border-dashed border-white/[0.07] text-truarc-muted/50">
                         <Disc3 size={20} className="mb-2 opacity-60" />
                         <div className="text-body">No disc selected</div>
-                        <div className="text-micro mt-1 text-truarc-muted/40">Search above to add one</div>
+                        <div className="text-micro mt-1 text-truarc-muted/40">Open Bag below to add one</div>
                     </div>
                 )}
 
-                {/* Throw Settings */}
-                <div className="cad-divider" />
+                <div className="cad-divider !my-0" />
+
                 <div>
-                    <div className="flex items-center justify-between gap-2 mb-2.5">
+                    <div className="flex items-center justify-between gap-2 mb-2">
                         <div className="flex items-center gap-2 min-w-0">
                             <Gauge size={14} className="text-truarc-muted/70" />
                             <span className="cad-text">Throw Settings</span>
@@ -267,7 +176,7 @@ export default function ThrowPanel({
                         )}
                     </div>
 
-                    <div className="flex flex-col gap-3.5">
+                    <div className="flex flex-col gap-2.5">
                         <SliderControl
                             label="Power"
                             value={throwSettings.power}
@@ -302,12 +211,25 @@ export default function ThrowPanel({
                         />
                     </div>
                 </div>
+            </div>
+
+            {/* ═══ SCROLLS ══════════════════════════════════════════ */}
+            <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar flex flex-col gap-3 -mr-1 pr-1">
+
+                {/* Side-on height + what the chart is claiming */}
+                {selectedDisc && (
+                    <>
+                        <div className="cad-divider !my-0" />
+                        <DiscProfileDetail disc={selectedDisc} profile={profile} />
+                    </>
+                )}
 
                 {/* Wind */}
-                <div className="cad-divider" />
+                <div className="cad-divider !my-0" />
                 <button
                     onClick={() => setShowWind(!showWind)}
                     className="flex items-center gap-2 w-full py-1 group"
+                    aria-expanded={showWind}
                 >
                     <Wind size={14} className="text-truarc-muted/70" />
                     <span className="cad-text group-hover:text-truarc-text transition-colors duration-150">Wind Conditions</span>
@@ -324,7 +246,7 @@ export default function ThrowPanel({
                             animate={{ height: 'auto', opacity: 1 }}
                             exit={{ height: 0, opacity: 0 }}
                             transition={{ duration: 0.2, ease: 'easeOut' }}
-                            className="overflow-hidden flex flex-col gap-3.5"
+                            className="overflow-hidden flex flex-col gap-3"
                         >
                             <SliderControl
                                 label="Wind Speed"
@@ -356,25 +278,28 @@ export default function ThrowPanel({
                     matters more than disc management. */}
                 {flightData && (
                     <>
-                        <div className="cad-divider" />
+                        <div className="cad-divider !my-0" />
                         <FlightResultsSection data={flightData} onFlyToLanding={onFlyToLanding} />
                     </>
                 )}
 
-                {/* Bag — last, and collapsed by default. Expanding is one
-                    click and the count stays visible while collapsed, so
-                    nothing is hidden, just folded away. */}
-                <div className="cad-divider" />
-                <div className="flex flex-col gap-1">
+                {/* ─── BAG ───────────────────────────────────────────
+                    The search box lives HERE, inside the bag section,
+                    rather than pinned at the top of the panel. It
+                    searches the full disc catalogue in order to ADD to
+                    your bag, so putting it under a "My Bag" header far
+                    above the actual bag list read as "search my bag" and
+                    left the thing it modifies off-screen. Search and the
+                    list it feeds are now one unit. */}
+                <div className="cad-divider !my-0" />
+                <div className="flex flex-col gap-2">
                     <button
                         onClick={() => setShowBag(!showBag)}
                         className="flex items-center gap-2 w-full py-1 group"
                         aria-expanded={showBag}
                     >
                         <Briefcase size={14} className="text-truarc-muted/70" />
-                        <span className="cad-text group-hover:text-truarc-text transition-colors duration-150">
-                            Bag
-                        </span>
+                        <span className="cad-text group-hover:text-truarc-text transition-colors duration-150">Bag</span>
                         <span className="font-mono text-micro text-truarc-muted/60 tabular-nums">
                             {myBag.length}
                         </span>
@@ -390,8 +315,33 @@ export default function ThrowPanel({
                                 transition={{ duration: 0.2, ease: 'easeOut' }}
                                 className="overflow-hidden"
                             >
+                                {/* Search — adds from the full catalogue */}
+                                <div className="relative mb-2">
+                                    <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-truarc-muted/70" />
+                                    <input
+                                        ref={searchInputRef}
+                                        id="disc-search-input"
+                                        type="text"
+                                        autoComplete="off"
+                                        value={searchQuery}
+                                        onChange={(e) => setSearchQuery(e.target.value)}
+                                        onKeyDown={(e) => e.stopPropagation()}
+                                        placeholder="Add a disc…"
+                                        className="w-full pl-9 pr-8 py-2 rounded-lg bg-white/[0.04] border border-white/[0.07] text-body text-truarc-text placeholder:text-truarc-muted/50 focus:outline-none focus:border-truarc-accent/40 focus:bg-white/[0.06] transition-colors duration-150"
+                                    />
+                                    {searchQuery && (
+                                        <button
+                                            type="button"
+                                            onClick={() => setSearchQuery('')}
+                                            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-truarc-muted/60 hover:text-truarc-text p-0.5 transition-colors"
+                                        >
+                                            <X size={14} />
+                                        </button>
+                                    )}
+                                </div>
+
                                 {myBag.length === 0 ? (
-                                    <div className="flex flex-col items-center justify-center py-7 rounded-xl border border-dashed border-white/[0.07] text-truarc-muted/50">
+                                    <div className="flex flex-col items-center justify-center py-6 rounded-xl border border-dashed border-white/[0.07] text-truarc-muted/50">
                                         <Briefcase size={18} className="mb-2 opacity-60" />
                                         <div className="text-body">Your bag is empty</div>
                                         <div className="text-micro mt-1 text-truarc-muted/40">Search above to add discs</div>
@@ -450,6 +400,64 @@ export default function ThrowPanel({
                     </AnimatePresence>
                 </div>
             </div>
+
+            {/* Search results — PORTALed to document.body so they are
+                never clipped by the panel's own overflow, and so they
+                float above the pinned region regardless of how far the
+                bag has been scrolled. */}
+            {searchQuery.trim() && createPortal(
+                <motion.div
+                    initial={{ opacity: 0, y: -4 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.15, ease: 'easeOut' }}
+                    className="fixed z-[9999] rounded-xl border border-white/[0.09] bg-truarc-surface shadow-elev-3 overflow-hidden"
+                    style={{
+                        top: dropdownPosition.top,
+                        left: dropdownPosition.left,
+                        width: dropdownPosition.width || 288,
+                        maxHeight: 224,
+                    }}
+                    onClick={(e) => e.stopPropagation()}
+                >
+                    <div className="cad-label px-3 py-2 border-b border-white/[0.06]">
+                        Add to bag
+                    </div>
+                    <div className="flex flex-col max-h-[184px] overflow-y-auto custom-scrollbar">
+                        {searchResults.length === 0 ? (
+                            <div className="py-4 text-center text-body text-truarc-muted">No discs found</div>
+                        ) : (
+                            searchResults.map((disc) => (
+                                <div
+                                    key={`${disc.brand}-${disc.name}`}
+                                    className="flex items-center justify-between py-2 px-3 hover:bg-white/[0.04] transition-colors duration-100"
+                                >
+                                    <div className="flex items-center gap-2 min-w-0">
+                                        <div className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: TYPE_COLORS[disc.type] }} />
+                                        <span className="text-body font-medium text-truarc-text truncate">{disc.name}</span>
+                                        <span className="text-truarc-muted/70 shrink-0 text-micro">{disc.brand}</span>
+                                        <span className="font-mono text-micro text-truarc-muted/50 shrink-0">
+                                            {disc.speed}/{disc.glide}/{disc.turn}/{disc.fade}
+                                        </span>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={(e) => addToBag(e, disc)}
+                                        disabled={isDiscInBag(disc)}
+                                        className={`shrink-0 flex items-center gap-1 px-2 py-1 rounded-md text-micro font-medium transition-all duration-150 ${isDiscInBag(disc)
+                                            ? 'text-truarc-muted/50 cursor-default'
+                                            : 'text-truarc-accent bg-truarc-accent/[0.08] hover:bg-truarc-accent/[0.16] active:scale-[0.97]'
+                                            }`}
+                                    >
+                                        <Plus size={12} />
+                                        {isDiscInBag(disc) ? 'In bag' : 'Add'}
+                                    </button>
+                                </div>
+                            ))
+                        )}
+                    </div>
+                </motion.div>,
+                document.body
+            )}
         </div>
     );
 }

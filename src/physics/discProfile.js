@@ -224,10 +224,10 @@ export function computeDiscProfile(disc, options = {}) {
  */
 export const CHART_DIMS = Object.freeze({
     w: 288,
-    h: 176,          // top-down plot area
+    h: 150,          // top-down plot area
     captionH: 16,    // caption strip below the plot
     heightW: 288,
-    heightH: 44,     // side-on altitude strip
+    heightH: 40,     // side-on altitude strip (scrolls; not in the pinned region)
 });
 
 /**

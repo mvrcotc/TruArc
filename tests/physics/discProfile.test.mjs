@@ -496,13 +496,25 @@ describe('CHART_DIMS', () => {
         assert.equal(CHART_DIMS.heightW, COLUMN_W);
     });
 
-    test('both charts together stay well under half the panel height', () => {
-        // Panel max-height is calc(100vh − 120px); at a 900px viewport
-        // that is 780px. Chart + captions + side strip must leave room
-        // for the search box, disc header, flight numbers, stats, and
-        // four sliders.
-        const rendered = CHART_DIMS.h + CHART_DIMS.captionH + CHART_DIMS.heightH;
-        assert.ok(rendered <= 260, `charts render ${rendered}px tall — sliders get pushed off-screen`);
+    test('the PINNED region fits the chart and four sliders together', () => {
+        // ThrowPanel pins the top-down chart and the throw sliders in a
+        // non-scrolling region so they cannot scroll apart — adjusting a
+        // setting and then scrolling to see what it did is not a usable
+        // control loop. That only holds if the chart leaves room for the
+        // rest of the pinned content. Measured from the shipped layout:
+        // disc header ~44, flight-number row ~40, headline figures ~26,
+        // divider + gaps ~30, settings header ~30, 4 sliders ~44 each.
+        const PINNED_CHROME = 44 + 40 + 26 + 30 + 30 + (4 * 44);
+        const pinned = CHART_DIMS.h + CHART_DIMS.captionH + PINNED_CHROME;
+        // Panel max-height is calc(100vh − 120px), i.e. 780px at a 900px
+        // viewport. Leave at least ~120px so the scrolling region below
+        // is visibly a scrolling region rather than a sliver.
+        assert.ok(pinned <= 660,
+            `pinned region is ${pinned}px — chart + sliders will not fit on screen together`);
+    });
+
+    test('the side strip is small — it scrolls, so it must not crowd what does not', () => {
+        assert.ok(CHART_DIMS.heightH <= 48);
     });
 
     test('the top-down plot stays tall enough to read a flight shape', () => {
