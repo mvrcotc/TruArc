@@ -4,9 +4,12 @@ name: LiDAR Pipeline Tests
 # Covers every function that doesn't require PDAL or live network access:
 # geometry/CRS math, PDAL pipeline-JSON construction (structure only, not
 # execution), tree schema validation, voxel-grid pack/unpack, DTM gridding,
-# and USGS API request/response handling against fixtures. Blocking — these
-# are correctness bugs in pure logic, not calibration-quality judgment
-# calls (contrast with physics-baseline.yml's envelope suite).
+# USGS API request/response handling against fixtures, and — most
+# importantly — tree segmentation ACCURACY, measured against synthetic
+# stands with exact known ground truth (detection rate, position, height,
+# crown radius, crown base, form). Blocking — these are correctness bugs
+# in pure logic, not calibration-quality judgment calls (contrast with
+# physics-baseline.yml's envelope suite).
 #
 # NOT covered here (no PDAL system library, no network to USGS/AWS/Firebase
 # in CI or in the sandbox this was developed in): actual PDAL pipeline
@@ -47,7 +50,7 @@ jobs:
       # toolchain just for CI is real setup cost for zero coverage gain
       # given the current test design; revisit once step 3 (segmentation)
       # needs PDAL-dependent logic that's actually worth testing here.
-      - run: pip install numpy requests pyproj
+      - run: pip install numpy scipy requests pyproj
 
       - name: Run lidar_pipeline test suite
         run: python -m unittest discover -s tests/lidar_pipeline -p "test_*.py" -v

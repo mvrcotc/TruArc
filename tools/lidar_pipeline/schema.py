@@ -5,14 +5,10 @@ This is the payload that kills the generic tree: instead of one height
 number, each tree carries the crown profile that lets Section 3 render
 its actual silhouette instead of a stretched placeholder model.
 
-`segment_trees()` — the canopy-height-model rasterization, treetop
-detection, and crown delineation that PRODUCES these records from raw
-points — is Section 2 step 3 and is intentionally NOT implemented here.
-Quality there decides whether the app is trustworthy in the woods, which
-is why the roadmap calls for it to be done (and reviewed) on Opus rather
-than folded into this Sonnet pass. The stub below raises loudly rather
-than silently returning nothing, so `pipeline.py` fails clearly instead
-of writing an empty trees.json if run end-to-end before step 3 lands.
+The canopy segmentation that PRODUCES these records from raw points —
+CHM rasterization, treetop detection, crown delineation — is Section 2
+step 3 and lives in `segmentation.py`, along with the reasoning behind
+its algorithm and parameter choices.
 """
 from __future__ import annotations
 
@@ -109,19 +105,8 @@ def read_trees_json(path: Path | str) -> list[TreeRecord]:
     return trees
 
 
-def segment_trees(points, working_crs: str):
-    """
-    Section 2, step 3 — CHM rasterization, treetop detection, crown
-    delineation. NOT implemented in this pass; see the module docstring.
-
-    Expected signature once implemented: `points` is the numpy
-    structured array from preprocess.run_preprocess() (fields X, Y, Z,
-    Classification, HeightAboveGround, in `working_crs` meters), and this
-    returns `list[TreeRecord]` with lng/lat already converted back to
-    WGS84.
-    """
-    raise NotImplementedError(
-        "segment_trees() is Section 2 step 3 (canopy segmentation) — "
-        "see docs/ACCURACY_ROADMAP.md §2. Deliberately unimplemented here; "
-        "run on Opus per the roadmap's model assignment for this step."
-    )
+# `segment_trees()` — the canopy segmentation that PRODUCES TreeRecords —
+# now lives in segmentation.py (Section 2, step 3). It is not re-exported
+# from here: segmentation.py imports TreeRecord and classify_form from
+# this module, so importing it back would be circular. Import it from
+# tools.lidar_pipeline.segmentation directly.

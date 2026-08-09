@@ -4,15 +4,10 @@ TruArc LiDAR Tree Inventory Pipeline — Orchestrator (Section 2)
 
     python -m tools.lidar_pipeline.pipeline --course maple-hill-gold
 
-Wires steps 1, 2, (3), 4, 5, 6, 7 together. Step 3 (canopy segmentation)
-is not implemented in this pass — see schema.segment_trees() — so
-running this end-to-end today will acquire tiles, preprocess them, build
-the voxel grid and DTM, and then stop with a clear error at the
-segmentation step rather than silently skipping tree-inventory output.
-Voxel grid + DTM generation do not depend on segmentation and will
-succeed on their own; use --skip-trees to stop cleanly before that step
-once step 3 lands, if only the collision/terrain outputs are needed for
-a given course.
+Wires steps 1-7 together: acquire USGS tiles -> preprocess -> voxel
+occupancy grid -> DTM -> per-tree segmentation -> optional upload.
+`--skip-trees` stops before segmentation when only the collision/terrain
+outputs are wanted (they do not depend on it).
 
 This orchestrator itself needs PDAL and live network access to run for
 real — neither is available in the sandbox this was developed in (see
@@ -26,12 +21,11 @@ from __future__ import annotations
 import argparse
 import json
 import logging
-import sys
 from pathlib import Path
 
 import numpy as np
 
-from . import acquire, preprocess, schema, storage, terrain, voxelgrid
+from . import acquire, preprocess, schema, segmentation, storage, terrain, voxelgrid
 from .geometry import resolve_course_bbox
 
 log = logging.getLogger("truarc.lidar.pipeline")
@@ -135,10 +129,12 @@ def run_course(course_id: str, skip_trees: bool = False, run_smrf: bool | None =
 
     if not skip_trees:
         log.info("[6/6] Segmenting individual trees...")
-        trees = schema.segment_trees(points[veg_mask], working_crs)  # raises NotImplementedError today
+        trees = segmentation.segment_trees(points, working_crs)
         trees_path = output_dir / f"{course_id}_trees.json"
-        schema.write_trees_json(trees, trees_path, course_id)
+        schema.write_trees_json(trees, trees_path, course_id,
+                                 source_note=f"USGS 3DEP via tools.lidar_pipeline, {len(tiles)} tile(s)")
         outputs["trees"] = str(trees_path)
+        log.info("       %d tree(s) written", len(trees))
     else:
         log.info("[6/6] Tree segmentation skipped (--skip-trees)")
 
@@ -165,13 +161,7 @@ def main():
     parser.add_argument("--upload", action="store_true", help="Upload outputs to Firebase Storage after processing")
     args = parser.parse_args()
 
-    try:
-        run_course(args.course, skip_trees=args.skip_trees, run_smrf=args.run_smrf)
-    except NotImplementedError as e:
-        log.error(str(e))
-        log.info("Voxel grid and DTM (if not skipped) were still written — re-run with --skip-trees "
-                  "to avoid this error until step 3 lands, or run again once it does.")
-        sys.exit(2)
+    run_course(args.course, skip_trees=args.skip_trees, run_smrf=args.run_smrf)
 
     if args.upload:
         upload_course(args.course)

@@ -266,15 +266,30 @@ untouched; it still serves its original role (the calibration-panel LiDAR overla
      tiles arrive already classified, and re-running SMRF on top of a good
      classification is wasted work at best, a worse classification at worst
      (`preprocess.class_counts_indicate_preclassified`).
-3. **Segmentation — NOT implemented.** This is exactly and only
-   `schema.segment_trees(points, working_crs) -> list[TreeRecord]`, currently a stub
-   that raises `NotImplementedError` naming this section. Every other step is built
-   and tested up to this seam: `run_preprocess()` hands it a classified, HAG'd,
-   working-CRS point array; it owes back a list of `TreeRecord`s (schema below,
-   already implemented and tested in full) with lng/lat converted back to WGS84.
-   **This is the piece that needs Opus** — CHM rasterization, pit-free smoothing,
-   height-scaled treetop detection, watershed/region-grow crown delineation
-   (`lidR`/`pycrown`/WhiteboxTools), validated against Maple Hill satellite imagery.
+3. **Segmentation** (`segmentation.py`) — CHM rasterization → pit filling → smoothing
+   → height-scaled local-maximum treetop detection → marker-controlled crown growing
+   → per-tree attribute extraction. **✅ DONE.** Three decisions worth recording:
+   - **Region growing (Dalponte & Coomes 2016), not watershed.** Watershed partitions
+     *every* pixel, so an isolated tree's crown floods outward until it collides with a
+     neighbour — it would eat the open fairway. Region growing accepts a pixel only if
+     it's a plausible continuation of *that* crown, so isolated trees stop at their own
+     edge. On a course, where gaps are the thing players need rendered honestly,
+     over-growing crowns into open space is the worse failure. (Also: no scikit-image
+     dependency, ~40 explicit lines.)
+   - **Attributes come from the POINTS, not the CHM.** The raster is a top-down
+     surface; crown base and vertical profile — half of Section 3's payload, and the
+     part that decides whether a line exists *under* a canopy — exist only in 3-D. The
+     raster is used solely to decide which points belong to which tree.
+   - **Crown base is found from horizontal SPREAD, not point density.** Density is the
+     intuitive signal and it is wrong: occlusion makes return density decay
+     exponentially down through a canopy, so a density threshold stops wherever the
+     canopy got thick. Measured against ground truth, the density version overestimated
+     crown base by **+5.4 m** — every tree a bare pole with a pom-pom on top, and worse,
+     the app telling a player there's a gap under a closed canopy. Spread separates
+     crown from trunk cleanly no matter how few returns survive: crowns are metres wide,
+     trunks are centimetres. Fixing this, plus pooling width estimates over a sliding
+     three-band window (a percentile over 2 points is noise, not a measurement), took
+     crown-base RMSE from 6.26 m → 2.67 m and bias from +5.4 m → +0.7 m.
 4. **Per-tree schema** (`schema.py`) — `TreeRecord` dataclass matching the plan exactly
    (lng/lat/groundElevM/heightM/crownRadiusM/crownBaseM/6-slice profile/form/
    pointCount), full validation (profile length/range, form enum, height/radius/base
@@ -317,17 +332,54 @@ against a fixture built from the TNM API's documented response schema, never cal
 live. **A first real run against Maple Hill — with PDAL and network access — is the
 actual integration test and hasn't happened yet.**
 
-**Acceptance:** Maple Hill processed end-to-end; spot-check ≥ 20 trees against
-satellite imagery for position (< 2 m) and crown extent (< 25 %); output for a full
-course < 5 MB. **Not yet met** — blocked on step 3 (Opus) and then a real environment
-run (PDAL + network), not on anything remaining in this session's scope.
+**How segmentation was validated without data.** The roadmap specified spot-checking
+trees against Maple Hill satellite imagery. No LiDAR and no network were available, and
+tuning segmentation parameters by eye against nothing is precisely how you end up with
+plausible-looking trees in the wrong places. So `synthetic.py` generates point clouds
+from *known* trees — with occlusion (upper canopy starves the lower crown of returns),
+surface-biased returns, sloped terrain, allometric crown sizes, and deliberately
+overlapping crowns — and `validation.py` measures recovery against that exact truth.
+Parameters were fitted on three stands and then confirmed on **held-out seeds never used
+for tuning**:
 
-**Model:** **Opus 5** for step 3 (segmentation parameter choices and validation logic —
-quality here decides whether the app is trustworthy in woods) — entry point:
-`tools/lidar_pipeline/schema.segment_trees()`. **Sonnet 5** for steps 1–2 and 4–7
-(well-trodden PDAL/CLI/serialization work) — **done**.
-Estimated size: 1 session Opus, 2 sessions Sonnet. **Actual: 1 Sonnet session for
-steps 1, 2, 4–7 plus the full test suite.**
+| | measured (held-out) | acceptance |
+|---|---|---|
+| detection rate | 96 % | — |
+| commission (false trees) | 1 % | — |
+| position RMSE | 0.51 m | < 2 m ✅ |
+| crown radius, median rel. error | 14.6 % | < 25 % ✅ |
+| height RMSE | 0.10 m | — |
+| crown base RMSE | 2.67 m | — |
+| form (conifer/deciduous) accuracy | 95 % | — |
+| full-course output | 0.32 MB (0.06 MB gzipped) | < 5 MB ✅ |
+
+Detection degrades with canopy density — 100 % at 10 stems/ha, 91 % at 40, 65 % at 160 —
+which is inherent to tree detection from airborne LiDAR (a suppressed tree under a
+dominant one is not visible from above) and in line with published results. **This does
+not degrade collision physics:** Section 4 reads the voxel occupancy grid, which bins
+*every* vegetation return regardless of whether segmentation resolved it into a tree.
+Missed trees cost rendering fidelity in dense woods, not gameplay correctness.
+
+Synthetic validation is a floor ("not broken"), not a ceiling ("accurate"). A generator
+encodes its author's assumptions, and real 3DEP data has scan-angle artifacts,
+multi-return structure, understory, deadfall, and leaf-on/leaf-off differences none of
+this reproduces. One known bias to check first against real imagery: crown radius is
+underestimated by ~0.5 m on average (using a 95th-percentile return distance as the
+crown edge). That was left **uncorrected** rather than fitted out with a factor derived
+from the generator's own assumptions.
+
+**Acceptance:** Maple Hill processed end-to-end; spot-check ≥ 20 trees against satellite
+imagery for position (< 2 m) and crown extent (< 25 %); output < 5 MB. **Criteria met
+against synthetic ground truth (table above); the Maple Hill imagery check itself is
+still outstanding** and needs an environment with PDAL and network access. That run is
+the remaining integration test for the whole section.
+
+**Model:** **Opus 5** for step 3 (segmentation algorithm, parameter choices, and
+validation methodology — quality here decides whether the app is trustworthy in woods)
+— **done**; entry point `tools/lidar_pipeline/segmentation.segment_trees()`.
+**Sonnet 5** for steps 1–2 and 4–7 (well-trodden PDAL/CLI/serialization work) —
+**done**. Estimated size: 1 session Opus, 2 sessions Sonnet. **Actual: 1 Sonnet session
+for steps 1, 2, 4–7; 1 Opus session for step 3 plus the synthetic-validation harness.**
 
 ---
 

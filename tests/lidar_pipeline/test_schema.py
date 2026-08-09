@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from tools.lidar_pipeline.schema import TreeRecord, classify_form, write_trees_json, read_trees_json, segment_trees
+from tools.lidar_pipeline.schema import TreeRecord, classify_form, write_trees_json, read_trees_json
 
 
 def make_tree(**overrides) -> TreeRecord:
@@ -101,14 +101,6 @@ class TestSerialization(unittest.TestCase):
         self.assertEqual(data["count"], 1)
         self.assertEqual(data["schema_version"], 1)
         self.assertEqual(len(data["trees"]), 1)
-
-
-class TestSegmentationStub(unittest.TestCase):
-    def test_raises_not_implemented_with_pointer_to_section_and_model(self):
-        with self.assertRaises(NotImplementedError) as ctx:
-            segment_trees(None, "EPSG:32619")
-        msg = str(ctx.exception)
-        self.assertIn("Section 2 step 3", msg)
 
 
 if __name__ == "__main__":

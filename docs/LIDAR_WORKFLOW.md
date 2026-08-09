@@ -37,11 +37,11 @@ and wasn't verified there, and `docs/ACCURACY_ROADMAP.md` §2 for the full statu
 2. Searches and downloads covering USGS 3DEP LAZ tiles, cached in `raw_data/usgs_cache/`.
 3. Preprocesses via PDAL: reproject to a metric working CRS → crop → ground-classify
    (skipped if the input is already classified) → denoise → height-above-ground.
-4. Segments individual trees — **not yet implemented**; this step raises
-   `NotImplementedError` naming itself so a full run fails clearly rather than
-   silently producing an empty tree inventory. Use `--skip-trees` to stop cleanly
-   before it and still get the voxel grid + DTM, which don't depend on it.
-5. Builds the voxel occupancy grid and DTM (both fully implemented and tested).
+4. Builds the voxel occupancy grid and DTM.
+5. Segments individual trees — CHM → treetop detection → crown growing → per-tree
+   height, crown radius, crown base, 6-slice crown profile, and conifer/deciduous
+   form. `--skip-trees` stops before this if only the collision/terrain outputs are
+   wanted. See `docs/ACCURACY_ROADMAP.md` §2 for measured accuracy and its limits.
 6. Writes everything to `processed_data/courses/{course_id}/`; `--upload` pushes to
    Firebase Storage at `lidar/{course_id}/...`.
 
@@ -51,13 +51,16 @@ and wasn't verified there, and `docs/ACCURACY_ROADMAP.md` §2 for the full statu
 python -m unittest discover -s tests/lidar_pipeline -p "test_*.py" -v
 ```
 
-86 tests covering everything that doesn't need PDAL or live network: course-bounds
+110 tests covering everything that doesn't need PDAL or live network: course-bounds
 geometry, CRS resolution/reprojection (real `pyproj` transforms, not mocked), PDAL
 pipeline-JSON construction (structure/ordering, not execution), the tree schema and
 its validation, voxel-grid pack/unpack (verified against a synthetic canopy gap), DTM
 gridding (verified against a synthetic slope, with missing-data cells confirmed to
-stay `null` rather than being fabricated), and the USGS API request/response handling
-against a fixture built from its documented schema. Wired into CI
+stay `null` rather than being fabricated), the USGS API request/response handling
+against a fixture built from its documented schema, and tree-segmentation **accuracy**
+— detection rate, position, height, crown radius, crown base and form error, all
+measured against synthetic stands with exact known ground truth rather than merely
+asserting the code runs. Wired into CI
 (`.github/workflows/lidar-pipeline-tests.yml`) as a blocking step.
 
 ---
