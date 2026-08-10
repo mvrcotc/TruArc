@@ -19,6 +19,7 @@ import { buildTerrainProfile } from '../physics/terrainProfile';
 import { courseToGeoJSON } from '../data/courses';
 import { applyOffsetToGeoJSON, applyOffsetToTrees, applyOffsetToPointCloud, applyOffsetToVoxelHeader } from '../utils/calibrationOffset';
 import { applyTerrainLayers, DEFAULT_TERRAIN } from '../map/terrainLayers';
+import { mapTypeDef, DEFAULT_MAP_TYPE } from '../map/mapStyles';
 import TreeLayer from '../map/TreeLayer';
 import PointCloudLayer from '../map/PointCloudLayer';
 import { decodePointCloud } from '../map/pointCloudFormat';
@@ -29,7 +30,7 @@ const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN;
 /** Path to LiDAR GeoJSON (place processed file at public/lidar/overlay.geojson) */
 const LIDAR_GEOJSON_URL = '/lidar/overlay.geojson';
 
-const MapCanvas = forwardRef(({ onMeasure, onFlightComplete, onMove, selectedDisc, throwSettings, wind, mode, activeCourse, activeHole, lidarEnabled, trueViewEnabled, calibrationOffset, editState, editTool, editDispatch, terrain }, ref) => {
+const MapCanvas = forwardRef(({ onMeasure, onFlightComplete, onMove, selectedDisc, throwSettings, wind, mode, activeCourse, activeHole, lidarEnabled, trueViewEnabled, calibrationOffset, editState, editTool, editDispatch, terrain, mapType }, ref) => {
     const containerRef = useRef(null);
     const mapRef = useRef(null);
     const markersRef = useRef([]);
@@ -51,6 +52,23 @@ const MapCanvas = forwardRef(({ onMeasure, onFlightComplete, onMove, selectedDis
     // over mount-time values — can read the CURRENT terrain settings.
     const terrainRef = useRef(terrain ?? DEFAULT_TERRAIN);
     terrainRef.current = terrain ?? DEFAULT_TERRAIN;
+
+    // ─── STYLE SWAP BOOKKEEPING ──────────────────────────────────
+    // `setStyle` throws away every source and layer this component added.
+    // Rebuilding is the app's job, and it hangs off `styleEpoch`: the
+    // style.load handler bumps it, and every effect that owns a layer
+    // lists it as a dependency so React re-runs the add. A new map layer
+    // added anywhere in this file MUST take styleEpoch in its deps, or it
+    // will disappear the first time someone changes the map type.
+    const mapTypeRef = useRef(mapType ?? DEFAULT_MAP_TYPE);
+    mapTypeRef.current = mapType ?? DEFAULT_MAP_TYPE;
+    const appliedMapTypeRef = useRef(mapType ?? DEFAULT_MAP_TYPE);
+    const [styleEpoch, setStyleEpoch] = useState(0);
+    // drawCourse is imperative (App calls it through the ref), so unlike
+    // the effect-driven layers there is no state to re-derive it from.
+    // Remember the argument in order to replay it.
+    const lastCourseRef = useRef(null);
+    const lastHoleRef = useRef(null);
 
     // ─── EXPOSE METHODS ─────────────────────────────────────────
     useImperativeHandle(ref, () => ({
@@ -129,8 +147,9 @@ const MapCanvas = forwardRef(({ onMeasure, onFlightComplete, onMove, selectedDis
             maxPitch: 85,
             maxZoom: 22,
             minZoom: 10,
-            // Mapbox standard-satellite gives true 3D volumetric trees
-            style: 'mapbox://styles/mapbox/standard-satellite',
+            // Whichever base map is selected at mount. Later changes go
+            // through the setStyle effect below, not through here.
+            style: mapTypeDef(mapTypeRef.current).url,
         });
 
         // `mapRef` is assigned only after `load`, so never use it to detect timeout —
@@ -172,10 +191,25 @@ const MapCanvas = forwardRef(({ onMeasure, onFlightComplete, onMove, selectedDis
                 // trees on would double them up on any course that has a
                 // real inventory. show3dObjects (buildings/landmarks,
                 // unrelated to trees) stays on.
-                map.setConfigProperty('basemap', 'show3dObjects', true);
+                //
+                // Only Standard styles have this config; on classic ones
+                // (Outdoors) it throws, which is expected, not an error.
+                if (mapTypeDef(mapTypeRef.current).slots) {
+                    map.setConfigProperty('basemap', 'show3dObjects', true);
+                }
             } catch (e) {
                 console.warn('Failed to set standard basemap config:', e);
             }
+
+            // The FIRST style.load is part of initial load, and the `load`
+            // handler below already does the setup. Every later one is a
+            // style SWAP, which has just destroyed everything this
+            // component added — announce it so the layer effects re-run.
+            if (!styleLoaded) return;
+            applyTerrainLayers(map, terrainRef.current, {
+                slots: mapTypeDef(mapTypeRef.current).slots,
+            });
+            setStyleEpoch((n) => n + 1);
         });
 
         map.on('load', () => {
@@ -189,7 +223,9 @@ const MapCanvas = forwardRef(({ onMeasure, onFlightComplete, onMove, selectedDis
             // mount, and the settings effect below may already have run.
             queueMicrotask(() => {
                 if (instanceRemoved || !mapRef.current) return;
-                applyTerrainLayers(map, terrainRef.current);
+                applyTerrainLayers(map, terrainRef.current, {
+                    slots: mapTypeDef(mapTypeRef.current).slots,
+                });
             });
         });
 
@@ -213,6 +249,24 @@ const MapCanvas = forwardRef(({ onMeasure, onFlightComplete, onMove, selectedDis
         };
     }, []);
 
+    // ─── BASE MAP TYPE ──────────────────────────────────────────
+    // Satellite / Terrain / Default. Compared against what is actually
+    // applied rather than against the previous prop, so a re-render with
+    // an unchanged type can never trigger a needless style reload — each
+    // one costs a full teardown and rebuild of every layer below.
+    useEffect(() => {
+        const map = mapRef.current;
+        if (!mapLoaded || !map) return;
+        const next = mapTypeDef(mapType ?? DEFAULT_MAP_TYPE);
+        if (appliedMapTypeRef.current === next.id) return;
+        appliedMapTypeRef.current = next.id;
+        try {
+            map.setStyle(next.url);
+        } catch (e) {
+            console.warn('[map] style swap failed:', e?.message ?? e);
+        }
+    }, [mapLoaded, mapType]);
+
     // ─── TERRAIN LEGIBILITY LAYERS ──────────────────────────────
     // Hillshade / contours, plus the true-scale mesh. Gated on
     // `mapLoaded` so the first application can't race the style; after
@@ -220,8 +274,21 @@ const MapCanvas = forwardRef(({ onMeasure, onFlightComplete, onMove, selectedDis
     // idempotent so re-running it is just a visibility flip.
     useEffect(() => {
         if (!mapLoaded || !mapRef.current) return;
-        applyTerrainLayers(mapRef.current, terrain ?? DEFAULT_TERRAIN);
-    }, [mapLoaded, terrain?.hillshade, terrain?.contours]);
+        applyTerrainLayers(mapRef.current, terrain ?? DEFAULT_TERRAIN, {
+            slots: mapTypeDef(mapTypeRef.current).slots,
+        });
+    }, [mapLoaded, terrain?.hillshade, terrain?.contours, styleEpoch]);
+
+    // ─── REBUILD AFTER A STYLE SWAP ─────────────────────────────
+    // The effect-driven layers (trees, LiDAR, point cloud, edit overlay)
+    // rebuild themselves by taking styleEpoch in their deps. The course
+    // layout is drawn imperatively through the ref, so nothing would
+    // re-trigger it — replay it from the remembered argument instead.
+    useEffect(() => {
+        if (styleEpoch === 0 || !mapRef.current) return;
+        if (lastCourseRef.current) drawCourse(lastCourseRef.current);
+        if (lastHoleRef.current) highlightActiveHole(lastHoleRef.current);
+    }, [styleEpoch]);
 
     // ─── CLICK HANDLERS ─────────────────────────────────────────
 
@@ -454,6 +521,8 @@ const MapCanvas = forwardRef(({ onMeasure, onFlightComplete, onMove, selectedDis
     function drawCourse(course) {
         const map = mapRef.current;
         if (!map) return;
+        // Remembered for replay after a style swap — see styleEpoch.
+        lastCourseRef.current = course;
 
         // Clear any existing course layers
         clearCourseLayout();
@@ -581,6 +650,7 @@ const MapCanvas = forwardRef(({ onMeasure, onFlightComplete, onMove, selectedDis
 
     function highlightActiveHole(hole) {
         const map = mapRef.current;
+        lastHoleRef.current = hole;   // replayed after a style swap
         if (!map || !map.getSource('course-active-hole')) return;
 
         // Update the active hole line
@@ -754,7 +824,7 @@ const MapCanvas = forwardRef(({ onMeasure, onFlightComplete, onMove, selectedDis
         // layer/source via the branch above — a separate cleanup here
         // would just double-remove. (Matches drawFlightPath's own note
         // on this file's general aversion to remove+re-add churn.)
-    }, [mapLoaded, mode, editState]);
+    }, [mapLoaded, mode, editState, styleEpoch]);
 
     // ─── DRAWING HELPERS ───────────────────────────────────────
 
@@ -1057,7 +1127,7 @@ const MapCanvas = forwardRef(({ onMeasure, onFlightComplete, onMove, selectedDis
             if (map.getLayer(layerId)) map.removeLayer(layerId);
             if (map.getSource(sourceId)) map.removeSource(sourceId);
         };
-    }, [mapLoaded, lidarEnabled, calibrationOffset]);
+    }, [mapLoaded, lidarEnabled, calibrationOffset, styleEpoch]);
 
     // ─── TREE LAYER (Section 2 LiDAR tree inventory, per course) ──
     //
@@ -1121,7 +1191,7 @@ const MapCanvas = forwardRef(({ onMeasure, onFlightComplete, onMove, selectedDis
         // meant to be a cheap re-tint. The course-change branch above
         // already removes the layer explicitly when courseId changes.
         return () => ac.abort();
-    }, [mapLoaded, activeCourse?.id, activeCourse?.center?.lng, activeCourse?.center?.lat, calibrationOffset]);
+    }, [mapLoaded, activeCourse?.id, activeCourse?.center?.lng, activeCourse?.center?.lat, calibrationOffset, styleEpoch]);
 
     // ─── COLLISION DATA (Section 4) ────────────────────────────────
     //
@@ -1226,7 +1296,7 @@ const MapCanvas = forwardRef(({ onMeasure, onFlightComplete, onMove, selectedDis
             });
 
         return () => ac.abort();
-    }, [mapLoaded, trueViewEnabled, activeCourse?.id, activeCourse?.center?.lng, activeCourse?.center?.lat, calibrationOffset]);
+    }, [mapLoaded, trueViewEnabled, activeCourse?.id, activeCourse?.center?.lng, activeCourse?.center?.lat, calibrationOffset, styleEpoch]);
 
     // ─── RENDER ─────────────────────────────────────────────────
     return (

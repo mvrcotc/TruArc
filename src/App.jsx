@@ -27,6 +27,7 @@ import FloatingCompass from './components/FloatingCompass';
 import WeatherPanel from './components/WeatherPanel';
 import TerrainPanel from './components/TerrainPanel';
 import { DEFAULT_TERRAIN } from './map/terrainLayers';
+import { DEFAULT_MAP_TYPE } from './map/mapStyles';
 
 export default function App() {
     const mapRef = useRef(null);
@@ -56,6 +57,8 @@ export default function App() {
     // persists across mode and course changes. Note there is no scale
     // setting here: the ground always renders true, see terrainLayers.js.
     const [terrain, setTerrain] = useState(DEFAULT_TERRAIN);
+    // Base map style. Satellite by default — see map/mapStyles.js.
+    const [mapType, setMapType] = useState(DEFAULT_MAP_TYPE);
     const [terrainExpanded, setTerrainExpanded] = useState(false);
     const [measurement, setMeasurement] = useState(null);
     const [flightData, setFlightData] = useState(null);
@@ -350,6 +353,7 @@ export default function App() {
                 editTool={editTool}
                 editDispatch={editDispatch}
                 terrain={terrain}
+                mapType={mapType}
             />
 
             {/* Tactical Grid Overlay */}
@@ -420,6 +424,8 @@ export default function App() {
                     <TerrainPanel
                         terrain={terrain}
                         onUpdate={setTerrain}
+                        mapType={mapType}
+                        onMapTypeChange={setMapType}
                         expanded={terrainExpanded}
                         onToggle={() => setTerrainExpanded((v) => !v)}
                     />

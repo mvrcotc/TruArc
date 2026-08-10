@@ -112,6 +112,20 @@ export const DEFAULT_TERRAIN = Object.freeze({
  */
 const IS_INDEX_CONTOUR = ['any', ['==', ['get', 'index'], 5], ['==', ['get', 'index'], 10]];
 
+/**
+ * The lowest label layer in the current style — the insertion point that
+ * means "above the ground, below the writing". Undefined is a valid
+ * answer (a style with no symbols at all) and makes addLayer append,
+ * which is the right fallback.
+ */
+function firstSymbolLayerId(map) {
+    try {
+        return map.getStyle()?.layers?.find((l) => l.type === 'symbol')?.id;
+    } catch {
+        return undefined;
+    }
+}
+
 export function demSourceSpec() {
     return { type: 'raster-dem', url: DEM_URL, tileSize: 512, maxzoom: 14 };
 }
@@ -142,12 +156,15 @@ export function contourSourceSpec() {
  * layer exists to prevent. 335° is the cartographic convention (light
  * from the upper left); the visual system reads that as convex.
  */
-export function hillshadeLayerSpec() {
+export function hillshadeLayerSpec({ slots = true } = {}) {
     return {
         id: HILLSHADE_LAYER,
         type: 'hillshade',
         source: HILLSHADE_SOURCE,
-        slot: 'bottom',
+        // Classic styles have no slots; applyTerrainLayers positions the
+        // layer with an explicit beforeId there instead. Leaving a stray
+        // `slot` on a classic style is a spec violation, not a no-op.
+        ...(slots ? { slot: 'bottom' } : {}),
         paint: {
             'hillshade-exaggeration': RELIEF_STRENGTH,
             'hillshade-illumination-direction': 335,
@@ -167,13 +184,13 @@ export function hillshadeLayerSpec() {
  * the intermediate ones as texture. One layer, data-driven — two layers
  * with opposed filters would be twice the tile work for the same picture.
  */
-export function contourLineLayerSpec() {
+export function contourLineLayerSpec({ slots = true } = {}) {
     return {
         id: CONTOUR_LINE_LAYER,
         type: 'line',
         source: CONTOUR_SOURCE,
         'source-layer': 'contour',
-        slot: 'middle',
+        ...(slots ? { slot: 'middle' } : {}),
         layout: { 'line-join': 'round' },
         paint: {
             'line-color': '#ffd9a0',
@@ -191,13 +208,13 @@ export function contourLineLayerSpec() {
  * Index contours only. Labelling every line at 10 m spacing on a course
  * that spans 30 m produces a wall of numbers over the fairway.
  */
-export function contourLabelLayerSpec() {
+export function contourLabelLayerSpec({ slots = true } = {}) {
     return {
         id: CONTOUR_LABEL_LAYER,
         type: 'symbol',
         source: CONTOUR_SOURCE,
         'source-layer': 'contour',
-        slot: 'top',
+        ...(slots ? { slot: 'top' } : {}),
         filter: IS_INDEX_CONTOUR,
         layout: {
             'symbol-placement': 'line',
@@ -233,9 +250,14 @@ export function contourLabelLayerSpec() {
  * on `getLayer`, and one failed overlay must never take down the map the
  * course is drawn on.
  */
-export function applyTerrainLayers(map, settings = DEFAULT_TERRAIN) {
+export function applyTerrainLayers(map, settings = DEFAULT_TERRAIN, { slots = true } = {}) {
     if (!map) return;
     const s = { ...DEFAULT_TERRAIN, ...settings };
+
+    // On a classic style, "under the labels" has to be said by naming a
+    // layer. Shading drawn OVER the labels turns road and place names to
+    // mud, which is the failure mode slots exist to prevent.
+    const underLabels = slots ? undefined : firstSymbolLayerId(map);
 
     // ── 3-D mesh, always at true scale ──
     // The exaggeration argument is the module constant, never anything
@@ -255,7 +277,7 @@ export function applyTerrainLayers(map, settings = DEFAULT_TERRAIN) {
                 map.addSource(HILLSHADE_SOURCE, hillshadeSourceSpec());
             }
             if (!map.getLayer(HILLSHADE_LAYER)) {
-                map.addLayer(hillshadeLayerSpec());
+                map.addLayer(hillshadeLayerSpec({ slots }), underLabels);
             }
         }
         if (map.getLayer(HILLSHADE_LAYER)) {
@@ -271,8 +293,15 @@ export function applyTerrainLayers(map, settings = DEFAULT_TERRAIN) {
             if (!map.getSource(CONTOUR_SOURCE)) {
                 map.addSource(CONTOUR_SOURCE, contourSourceSpec());
             }
-            if (!map.getLayer(CONTOUR_LINE_LAYER)) map.addLayer(contourLineLayerSpec());
-            if (!map.getLayer(CONTOUR_LABEL_LAYER)) map.addLayer(contourLabelLayerSpec());
+            if (!map.getLayer(CONTOUR_LINE_LAYER)) {
+                map.addLayer(contourLineLayerSpec({ slots }), underLabels);
+            }
+            // Labels are the one thing that SHOULD sit above the base
+            // style's own symbols — a contour number hidden behind a road
+            // shield is a number you can't read.
+            if (!map.getLayer(CONTOUR_LABEL_LAYER)) {
+                map.addLayer(contourLabelLayerSpec({ slots }));
+            }
         }
         for (const id of [CONTOUR_LINE_LAYER, CONTOUR_LABEL_LAYER]) {
             if (map.getLayer(id)) {

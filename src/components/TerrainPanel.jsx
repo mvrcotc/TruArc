@@ -1,13 +1,19 @@
 /**
  * ╔══════════════════════════════════════════════════════════════════╗
- * ║  TerrainPanel — making the ground readable                       ║
+ * ║  Map panel — base map type, and making the ground readable       ║
  * ╚══════════════════════════════════════════════════════════════════╝
  *
- * Lives in the LEFT rail beside Wind, for the same reason: relief is a
- * property of the PLACE. It is not part of a throw's setup, and it
- * applies to every disc in the bag.
+ * Lives in the LEFT rail beside Wind, for the same reason: how the
+ * ground is drawn is a property of the PLACE. It is not part of a
+ * throw's setup, and it applies to every disc in the bag.
  *
- * ── TWO TOGGLES, AND NOTHING THAT DISTORTS ───────────────────────────
+ * Two levels, in the order you'd reach for them:
+ *
+ *   MAP TYPE   Which base map — Satellite / Terrain / Default. Replaces
+ *              the whole style, exactly like Google's picker.
+ *   OVERLAYS   Shading and contours, drawn on top of whichever base.
+ *
+ * ── OVERLAYS ADD CUES, THEY DON'T DISTORT ────────────────────────────
  * Satellite imagery hides terrain — it carries its own flat, near-vertical
  * lighting, and a fairway is a big low-contrast green area. See
  * src/map/terrainLayers.js for the full reasoning. Two cues bring it back:
@@ -30,16 +36,22 @@
 
 import React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Mountain, ChevronDown } from 'lucide-react';
+import { Map as MapIcon, Satellite, Mountain, Layers, ChevronDown } from 'lucide-react';
 import { DEFAULT_TERRAIN } from '../map/terrainLayers';
+import { MAP_TYPES, MAP_TYPE_ORDER, DEFAULT_MAP_TYPE } from '../map/mapStyles';
 
-export default function TerrainPanel({ terrain, onUpdate, expanded, onToggle }) {
+const TYPE_ICON = { default: MapIcon, satellite: Satellite, terrain: Mountain };
+
+export default function TerrainPanel({ terrain, onUpdate, mapType, onMapTypeChange, expanded, onToggle }) {
     const t = { ...DEFAULT_TERRAIN, ...(terrain ?? {}) };
     const set = (patch) => onUpdate({ ...t, ...patch });
+    const type = MAP_TYPES[mapType] ?? MAP_TYPES[DEFAULT_MAP_TYPE];
 
     // Collapsed summary — the panel has to be useful without opening it.
-    const active = [t.hillshade && 'Shading', t.contours && 'Contours'].filter(Boolean);
-    const summary = active.length ? active.join(' + ') : 'Satellite only';
+    // Base map first, then whatever is layered over it, because the base
+    // is the bigger change and the one you're most likely checking.
+    const overlays = [t.hillshade && 'Shading', t.contours && 'Contours'].filter(Boolean);
+    const summary = [type.label, ...overlays].join(' · ');
 
     return (
         <div className="glass-panel w-[320px] p-3.5">
@@ -48,9 +60,9 @@ export default function TerrainPanel({ terrain, onUpdate, expanded, onToggle }) 
                 className="flex items-center gap-2 w-full group"
                 aria-expanded={expanded}
             >
-                <Mountain size={14} className="text-truarc-accent" />
+                <Layers size={14} className="text-truarc-accent" />
                 <span className="cad-text group-hover:text-truarc-text transition-colors duration-150">
-                    Terrain
+                    Map
                 </span>
                 <span className="font-mono text-micro text-truarc-muted tabular-nums ml-auto mr-1 truncate max-w-[150px]">
                     {summary}
@@ -71,6 +83,28 @@ export default function TerrainPanel({ terrain, onUpdate, expanded, onToggle }) 
                         className="overflow-hidden"
                     >
                         <div className="pt-3 flex flex-col gap-3">
+                            {/* Base map. A 3-up row rather than a dropdown:
+                                there are exactly three, and seeing all of
+                                them is what tells you the choice exists. */}
+                            <div>
+                                <span className="cad-label">Map type</span>
+                                <div className="grid grid-cols-3 gap-1.5 mt-1.5" role="radiogroup" aria-label="Map type">
+                                    {MAP_TYPE_ORDER.map((id) => (
+                                        <MapTypeTile
+                                            key={id}
+                                            def={MAP_TYPES[id]}
+                                            selected={type.id === id}
+                                            onSelect={() => onMapTypeChange(id)}
+                                        />
+                                    ))}
+                                </div>
+                                <p className="text-micro text-truarc-muted/50 leading-tight mt-1.5">
+                                    {type.hint}
+                                </p>
+                            </div>
+
+                            <div className="h-px bg-white/[0.06]" />
+
                             <Toggle
                                 label="Relief shading"
                                 hint="Lights the ground from a fixed north-west sun, so slopes read as slopes"
@@ -96,6 +130,25 @@ export default function TerrainPanel({ terrain, onUpdate, expanded, onToggle }) 
                 )}
             </AnimatePresence>
         </div>
+    );
+}
+
+function MapTypeTile({ def, selected, onSelect }) {
+    const Icon = TYPE_ICON[def.id] ?? MapIcon;
+    return (
+        <button
+            onClick={onSelect}
+            role="radio"
+            aria-checked={selected}
+            title={def.hint}
+            className={`flex flex-col items-center gap-1 py-2 rounded-md border transition-colors duration-150 ${selected
+                ? 'bg-truarc-accent/[0.14] border-truarc-accent/45 text-truarc-accent'
+                : 'bg-white/[0.03] border-white/[0.07] text-truarc-muted hover:bg-white/[0.06] hover:text-truarc-text'
+                }`}
+        >
+            <Icon size={16} />
+            <span className="text-micro leading-none">{def.label}</span>
+        </button>
     );
 }
 
