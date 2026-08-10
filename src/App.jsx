@@ -370,11 +370,6 @@ export default function App() {
                 />
             </div>
 
-            {/* Current Weather Widget */}
-            <div className="absolute top-[70px] left-1/2 -translate-x-1/2 z-20 w-[560px] pointer-events-auto">
-                <CurrentWeather />
-            </div>
-
             {/* Left Panel: course browsing, the active hole's detail, and
                 point-to-point measurements — "where am I / what am I
                 looking at" context, as opposed to the right panel's
@@ -389,7 +384,12 @@ export default function App() {
                 mode toggling must not reset their in-progress state. They
                 have no Toolbar button (see the keyboard-shortcut comment
                 above) but stay reachable by their shortcuts. */}
-            <div className="absolute top-[104px] left-5 z-20 pointer-events-auto flex flex-col gap-2.5 max-h-[calc(100vh-128px)] overflow-y-auto custom-scrollbar pr-0.5">
+            <div className="absolute top-5 left-5 z-20 pointer-events-auto flex flex-col gap-2.5 max-h-[calc(100vh-36px)] overflow-y-auto custom-scrollbar pr-0.5">
+                {/* Current Weather — positioned above everything else */}
+                {activeCourse?.lat && activeCourse?.lng && (
+                    <CurrentWeather latitude={activeCourse.lat} longitude={activeCourse.lng} />
+                )}
+
                 <FlightStats
                     mode={mode}
                     measurement={measurement}
