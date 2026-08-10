@@ -94,14 +94,13 @@ export const TERRAIN_EXAGGERATION = 1.0;
 const RELIEF_STRENGTH = 0.6;
 
 /**
- * Hillshade is ON because it is the whole answer to "I can't see the
- * hills". Contours are OFF because Mapbox's are 10 m apart, which on a
- * course with 20 m of total relief draws two lines and reads as clutter
- * until someone actually wants the number.
+ * Hillshade and contours are both ON by default. Relief shading puts back
+ * the light-and-shadow cue that satellite imagery loses, and contours show
+ * the exact elevation in feet — the number that changes club selection.
  */
 export const DEFAULT_TERRAIN = Object.freeze({
     hillshade: true,
-    contours: false,
+    contours: true,
 });
 
 /**

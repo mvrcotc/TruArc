@@ -163,17 +163,22 @@ describe('applyTerrainLayers', () => {
         assert.ok(map.getLayer(HILLSHADE_LAYER), 'hillshade layer missing');
     });
 
-    test('does not create contour layers until they are asked for', () => {
-        // They default off, and a vector source costs tile requests.
+    test('creates contour layers by default, hides them when toggled off', () => {
+        // Contours are ON by default (relief shading + contours = true
+        // terrain), so the vector source is created and tile requests start.
+        // Toggling off hides them rather than removes, so toggling back on
+        // doesn't re-fetch tiles.
         const map = fakeMap();
         applyTerrainLayers(map, DEFAULT_TERRAIN);
-        assert.equal(map.getSource(CONTOUR_SOURCE), undefined);
-        assert.equal(map.getLayer(CONTOUR_LINE_LAYER), undefined);
+        assert.ok(map.getSource(CONTOUR_SOURCE), 'contour source should be created by default');
+        assert.ok(map.getLayer(CONTOUR_LINE_LAYER), 'contour lines should be visible by default');
+        assert.equal(map.getLayer(CONTOUR_LINE_LAYER).layout.visibility, 'visible');
+
+        applyTerrainLayers(map, { ...DEFAULT_TERRAIN, contours: false });
+        assert.equal(map.getLayer(CONTOUR_LINE_LAYER).layout.visibility, 'none');
 
         applyTerrainLayers(map, { ...DEFAULT_TERRAIN, contours: true });
-        assert.ok(map.getSource(CONTOUR_SOURCE));
-        assert.ok(map.getLayer(CONTOUR_LINE_LAYER));
-        assert.ok(map.getLayer(CONTOUR_LABEL_LAYER));
+        assert.equal(map.getLayer(CONTOUR_LINE_LAYER).layout.visibility, 'visible');
     });
 
     test('toggling off hides rather than removes, and toggling back on re-shows', () => {

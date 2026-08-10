@@ -73,7 +73,6 @@ describe('map type definitions', () => {
         // Only v3 Standard styles have slots. Getting this wrong is
         // invisible until a hillshade paints over every road label.
         assert.equal(MAP_TYPES.satellite.slots, true);
-        assert.equal(MAP_TYPES.default.slots, true);
         assert.equal(MAP_TYPES.terrain.slots, false, 'Outdoors is a classic style');
     });
 

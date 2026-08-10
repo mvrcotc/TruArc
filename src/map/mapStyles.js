@@ -3,15 +3,13 @@
  * ║  Base map types — the "Map type" picker                          ║
  * ╚══════════════════════════════════════════════════════════════════╝
  *
- * Three base maps, the same three Google offers, because they answer
- * three different questions a player actually has:
+ * Two base maps, answering the two questions a player actually has:
  *
  *   SATELLITE  What is actually there? Tree lines, the mown fairway,
  *              the gap you're trying to hit. The default, and the only
  *              one that shows the real obstacles.
  *   TERRAIN    What shape is the ground? Hypsometric tint, contours and
  *              trails, no canopy hiding the landform.
- *   DEFAULT    How do I get there / where do I park? Roads and labels.
  *
  * These are BASE MAPS, not overlays — picking one replaces the whole
  * style. The hillshade and contour layers in terrainLayers.js sit on top
@@ -36,13 +34,6 @@
  */
 
 export const MAP_TYPES = Object.freeze({
-    default: {
-        id: 'default',
-        label: 'Default',
-        hint: 'Roads and labels — getting to the course',
-        url: 'mapbox://styles/mapbox/standard',
-        slots: true,
-    },
     satellite: {
         id: 'satellite',
         label: 'Satellite',
@@ -64,7 +55,7 @@ export const MAP_TYPES = Object.freeze({
 });
 
 /** Display order, matching the picker left→right. */
-export const MAP_TYPE_ORDER = ['default', 'satellite', 'terrain'];
+export const MAP_TYPE_ORDER = ['satellite', 'terrain'];
 
 /**
  * Satellite, because the first question on a course is "what is between

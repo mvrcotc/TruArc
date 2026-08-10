@@ -26,6 +26,7 @@ import CourseSearch from './components/CourseSearch';
 import FloatingCompass from './components/FloatingCompass';
 import WeatherPanel from './components/WeatherPanel';
 import TerrainPanel from './components/TerrainPanel';
+import CurrentWeather from './components/CurrentWeather';
 import { DEFAULT_TERRAIN } from './map/terrainLayers';
 import { DEFAULT_MAP_TYPE } from './map/mapStyles';
 
@@ -367,6 +368,11 @@ export default function App() {
                     onReset={handleReset}
 
                 />
+            </div>
+
+            {/* Current Weather Widget */}
+            <div className="absolute top-[70px] left-1/2 -translate-x-1/2 z-20 w-[560px] pointer-events-auto">
+                <CurrentWeather />
             </div>
 
             {/* Left Panel: course browsing, the active hole's detail, and

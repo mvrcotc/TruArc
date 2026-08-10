@@ -40,7 +40,7 @@ import { Map as MapIcon, Satellite, Mountain, Layers, ChevronDown } from 'lucide
 import { DEFAULT_TERRAIN } from '../map/terrainLayers';
 import { MAP_TYPES, MAP_TYPE_ORDER, DEFAULT_MAP_TYPE } from '../map/mapStyles';
 
-const TYPE_ICON = { default: MapIcon, satellite: Satellite, terrain: Mountain };
+const TYPE_ICON = { satellite: Satellite, terrain: Mountain };
 
 export default function TerrainPanel({ terrain, onUpdate, mapType, onMapTypeChange, expanded, onToggle }) {
     const t = { ...DEFAULT_TERRAIN, ...(terrain ?? {}) };
@@ -83,12 +83,11 @@ export default function TerrainPanel({ terrain, onUpdate, mapType, onMapTypeChan
                         className="overflow-hidden"
                     >
                         <div className="pt-3 flex flex-col gap-3">
-                            {/* Base map. A 3-up row rather than a dropdown:
-                                there are exactly three, and seeing all of
-                                them is what tells you the choice exists. */}
+                            {/* Base map. A 2-up row rather than a dropdown:
+                                seeing both options is what tells you the choice exists. */}
                             <div>
                                 <span className="cad-label">Map type</span>
-                                <div className="grid grid-cols-3 gap-1.5 mt-1.5" role="radiogroup" aria-label="Map type">
+                                <div className="grid grid-cols-2 gap-1.5 mt-1.5" role="radiogroup" aria-label="Map type">
                                     {MAP_TYPE_ORDER.map((id) => (
                                         <MapTypeTile
                                             key={id}
