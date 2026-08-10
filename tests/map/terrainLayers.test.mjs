@@ -9,10 +9,13 @@
  * expression referenced a field that doesn't exist. So the specs are
  * built by pure functions and asserted structurally here.
  *
- * The second thing guarded here is the one that matters for accuracy
- * rather than looks: exaggeration must stay COSMETIC. It is exposed as a
- * slider, and `queryTerrainElevation` defaults to returning exaggerated
- * values, so nothing may route it into a measurement or a simulation.
+ * The second thing guarded here matters for accuracy rather than looks:
+ * the ground must render at TRUE SCALE, with no path — setting, slider,
+ * or override — that can stretch it. An earlier revision shipped a 2×
+ * mesh and a slider to change it; the tests at the bottom of this file
+ * exist so that cannot come back by accident. `queryTerrainElevation`
+ * separately defaults to returning exaggerated values, so every call site
+ * is pinned to opt out.
  */
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
@@ -23,7 +26,7 @@ import {
     HILLSHADE_LAYER, CONTOUR_LINE_LAYER, CONTOUR_LABEL_LAYER,
     demSourceSpec, hillshadeSourceSpec, contourSourceSpec,
     hillshadeLayerSpec, contourLineLayerSpec, contourLabelLayerSpec,
-    clampExaggeration, applyTerrainLayers,
+    TERRAIN_EXAGGERATION, applyTerrainLayers,
 } from '../../src/map/terrainLayers.js';
 
 /**
@@ -96,11 +99,13 @@ describe('hillshade layer', () => {
         assert.ok(dir > 270 && dir < 360, `illumination ${dir}° is not north-west`);
     });
 
-    test('relief strength is carried through and clamped to 0…1', () => {
-        assert.equal(hillshadeLayerSpec({ relief: 0.8 }).paint['hillshade-exaggeration'], 0.8);
-        assert.equal(hillshadeLayerSpec({ relief: 5 }).paint['hillshade-exaggeration'], 1);
-        assert.equal(hillshadeLayerSpec({ relief: -2 }).paint['hillshade-exaggeration'], 0);
-        assert.equal(hillshadeLayerSpec({ relief: NaN }).paint['hillshade-exaggeration'], 0);
+    test('relief strength is a valid, visible, fixed value', () => {
+        // Mapbox accepts out-of-range silently, and 0 renders as "no
+        // hillshade at all" — which looks exactly like the layer failing
+        // to load, the bug this whole module exists to avoid.
+        const v = hillshadeLayerSpec().paint['hillshade-exaggeration'];
+        assert.ok(v > 0 && v <= 1, `hillshade-exaggeration ${v} outside 0…1`);
+        assert.equal(hillshadeLayerSpec().paint['hillshade-exaggeration'], v);
     });
 });
 
@@ -201,13 +206,6 @@ describe('applyTerrainLayers', () => {
         assert.equal(before, after);
     });
 
-    test('changing shading strength updates the live layer in place', () => {
-        const map = fakeMap();
-        applyTerrainLayers(map, { ...DEFAULT_TERRAIN, relief: 0.3 });
-        applyTerrainLayers(map, { ...DEFAULT_TERRAIN, relief: 0.9 });
-        assert.equal(map.getLayer(HILLSHADE_LAYER).paint['hillshade-exaggeration'], 0.9);
-    });
-
     test('one broken overlay never takes down the map the course is drawn on', () => {
         const map = fakeMap();
         map.addLayer = () => { throw new Error('style reloading'); };
@@ -221,25 +219,46 @@ describe('applyTerrainLayers', () => {
     });
 });
 
-describe('exaggeration stays cosmetic', () => {
-    test('is clamped to a sane range', () => {
-        assert.equal(clampExaggeration(2), 2);
-        assert.equal(clampExaggeration(-5), 0);
-        assert.equal(clampExaggeration(99), 4);
-        assert.equal(clampExaggeration(undefined), DEFAULT_TERRAIN.exaggeration);
-        assert.equal(clampExaggeration(NaN), DEFAULT_TERRAIN.exaggeration);
+describe('the ground is never distorted', () => {
+    // This app is used to pick real lines at real holes. A hill drawn
+    // steeper than it plays is worse than a hill not drawn at all, so
+    // true scale is an invariant here rather than a default.
+    test('the mesh renders at 1.0', () => {
+        assert.equal(TERRAIN_EXAGGERATION, 1);
+        const map = fakeMap();
+        applyTerrainLayers(map, DEFAULT_TERRAIN);
+        assert.equal(map.terrain.exaggeration, 1);
     });
 
-    test('reaches setTerrain and nothing else', () => {
+    test('no caller can talk applyTerrainLayers into exaggerating', () => {
+        // The old revision took exaggeration from settings and shipped a
+        // slider for it. Anything that reintroduces that path — a stray
+        // spread, a "just for this view" override — has to fail here.
         const map = fakeMap();
-        applyTerrainLayers(map, { ...DEFAULT_TERRAIN, exaggeration: 2.7, contours: true });
-        assert.equal(map.terrain.exaggeration, 2.7);
+        applyTerrainLayers(map, { ...DEFAULT_TERRAIN, exaggeration: 2.7 });
+        assert.equal(map.terrain.exaggeration, 1, 'settings reached the mesh scale');
 
-        // It must not have leaked into any layer's paint or layout — those
-        // feed rendering only, but a stray copy is how a "display-only"
-        // setting starts meaning something else.
-        const serialized = JSON.stringify([...map._layers.values()]);
-        assert.ok(!serialized.includes('2.7'), 'exaggeration leaked into a layer spec');
+        applyTerrainLayers(map, { hillshade: true, contours: true, exaggeration: 5 });
+        assert.equal(map.terrain.exaggeration, 1);
+    });
+
+    test('the settings object has no scale knob at all', () => {
+        // Belt and braces with the test above: that one proves the value
+        // is ignored, this one proves the UI is never offered it.
+        assert.ok(!('exaggeration' in DEFAULT_TERRAIN));
+        assert.deepEqual(Object.keys(DEFAULT_TERRAIN).sort(), ['contours', 'hillshade']);
+    });
+
+    test('shading strength is fixed, not driven by settings', () => {
+        // Hillshade brightness is computed from the true slope, so it can
+        // only make real relief easier to see — it cannot invent a hill.
+        // It is still pinned, so "turn it up" can't become a soft
+        // substitute for the exaggeration that was removed.
+        const map = fakeMap();
+        applyTerrainLayers(map, { ...DEFAULT_TERRAIN, relief: 0.05 });
+        const strong = map.getLayer(HILLSHADE_LAYER).paint['hillshade-exaggeration'];
+        assert.equal(strong, hillshadeLayerSpec().paint['hillshade-exaggeration']);
+        assert.ok(strong > 0 && strong <= 1);
     });
 
     test('every queryTerrainElevation call site opts out of exaggeration', async () => {

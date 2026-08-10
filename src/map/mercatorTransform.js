@@ -54,19 +54,26 @@
  * ════════════════════════════════════════════════════════════════════
  *  TERRAIN EXAGGERATION — WHY TREES WOULD OTHERWISE BE BURIED
  * ════════════════════════════════════════════════════════════════════
- * MapCanvas.jsx currently sets `setTerrain({exaggeration: 2.0})` for
- * visual drama. Mapbox displaces its terrain MESH by that factor, but
+ * Mapbox displaces its terrain MESH by the exaggeration factor, but
  * hands custom layers a plain mercator matrix with no such adjustment.
- * A tree drawn at its true altitude therefore sits at half the height
- * of the ground rendered beneath it — i.e. buried, on any terrain above
- * sea level.
+ * Under a 2× mesh, a tree drawn at its true altitude sits at half the
+ * height of the ground rendered beneath it — i.e. buried, on any terrain
+ * above sea level.
  *
  * So `elevationExaggeration` must match whatever the map is actually
  * using (`map.getTerrain()?.exaggeration ?? 1`), which is what TreeLayer
- * reads at render time. Note this is a rendering-only compensation: the
- * exaggerated altitude is a lie told consistently to both the ground and
- * the trees so they agree on screen. Anything MEASURING elevation must
- * use exaggeration 1.0 and true altitudes — see docs/ACCURACY_ROADMAP.md
+ * reads at render time.
+ *
+ * The app now renders the ground at TRUE SCALE — terrainLayers.js sets
+ * 1.0 and exposes no control to change it, because a player picking a
+ * line off an inflated hill is being misled. This compensation is
+ * therefore identity today. It is kept, and kept tested, because it is
+ * the mechanism that holds custom 3-D geometry level with the mesh: it
+ * is what makes the constant safe to change rather than load-bearing by
+ * accident.
+ *
+ * Independently of all this, anything MEASURING elevation must read true
+ * altitudes (`{ exaggerated: false }`) — see docs/ACCURACY_ROADMAP.md
  * §2.6, which flags the same trap for the flight simulator.
  */
 

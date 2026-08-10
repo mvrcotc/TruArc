@@ -7,33 +7,31 @@
  * property of the PLACE. It is not part of a throw's setup, and it
  * applies to every disc in the bag.
  *
- * ── WHY THESE THREE CONTROLS ─────────────────────────────────────────
+ * ── TWO TOGGLES, AND NOTHING THAT DISTORTS ───────────────────────────
  * Satellite imagery hides terrain — it carries its own flat, near-vertical
  * lighting, and a fairway is a big low-contrast green area. See
- * src/map/terrainLayers.js for the full reasoning. The controls map one
- * to one onto the three cues that bring it back:
+ * src/map/terrainLayers.js for the full reasoning. Two cues bring it back:
  *
  *   RELIEF SHADING  consistent DEM-derived light → shape becomes visible
  *   CONTOURS        elevation as a labelled number, in feet
- *   EXAGGERATION    amplifies the mesh when the relief is genuinely
- *                   subtle, which on a golf course it usually is
  *
- * ── EXAGGERATION SAYS WHAT IT IS ─────────────────────────────────────
- * The panel states in words that exaggeration is display-only. That is a
- * promise the code has to keep, and it only became true when every
- * `queryTerrainElevation` call started passing `{ exaggerated: false }` —
- * before that the setting was silently scaling the slopes the flight
- * engine integrated. A control that quietly changes simulated results
- * while claiming to be cosmetic is worse than no control.
+ * Both are READ-OUTS of the real ground. Neither changes its geometry,
+ * and the panel offers no control that does, because this app is used to
+ * pick real lines at real holes: a slope that looks steeper than it plays
+ * is worse than no slope drawn at all.
+ *
+ * An earlier revision of this panel shipped a vertical-exaggeration
+ * slider. It was a mistake worth naming — the map had long rendered at
+ * 2× "for visual drama", and exposing that as a control dressed up a
+ * rendering lie as a feature. The honest fix was the opposite one: put
+ * the ground back at 1.0 and add the shading that made the drama
+ * unnecessary in the first place.
  */
 
 import React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Mountain, ChevronDown } from 'lucide-react';
 import { DEFAULT_TERRAIN } from '../map/terrainLayers';
-
-const SLIDER_FILL = 'rgba(76, 184, 255, 0.9)';
-const SLIDER_TRACK = 'rgba(255, 255, 255, 0.08)';
 
 export default function TerrainPanel({ terrain, onUpdate, expanded, onToggle }) {
     const t = { ...DEFAULT_TERRAIN, ...(terrain ?? {}) };
@@ -80,21 +78,6 @@ export default function TerrainPanel({ terrain, onUpdate, expanded, onToggle }) 
                                 onChange={(v) => set({ hillshade: v })}
                             />
 
-                            {/* Only meaningful while the shading it scales is
-                                on — showing a live slider that does nothing
-                                teaches players the control is broken. */}
-                            {t.hillshade && (
-                                <Slider
-                                    label="Shading strength"
-                                    value={t.relief}
-                                    onChange={(v) => set({ relief: v })}
-                                    min={0.1}
-                                    max={1}
-                                    step={0.05}
-                                    format={(v) => `${Math.round(v * 100)}%`}
-                                />
-                            )}
-
                             <Toggle
                                 label="Contour lines"
                                 hint="Elevation labelled in feet, every 5th line — the number behind the shading"
@@ -102,20 +85,11 @@ export default function TerrainPanel({ terrain, onUpdate, expanded, onToggle }) 
                                 onChange={(v) => set({ contours: v })}
                             />
 
-                            <Slider
-                                label="Vertical exaggeration"
-                                value={t.exaggeration}
-                                onChange={(v) => set({ exaggeration: v })}
-                                min={1}
-                                max={3}
-                                step={0.1}
-                                format={(v) => `${v.toFixed(1)}×`}
-                            />
-
                             <p className="text-micro text-truarc-muted/45 leading-relaxed">
-                                Exaggeration affects the picture only. Measured
-                                distances and simulated flights always use the
-                                real elevation.
+                                Terrain is drawn at true scale. These layers
+                                change how the ground is lit and labelled,
+                                never its shape — what you see is the slope
+                                you'll throw.
                             </p>
                         </div>
                     </motion.div>
@@ -147,27 +121,5 @@ function Toggle({ label, hint, checked, onChange }) {
                 <span className="block text-micro text-truarc-muted/50 leading-tight mt-0.5">{hint}</span>
             </span>
         </button>
-    );
-}
-
-function Slider({ label, value, onChange, min, max, step, format }) {
-    const pct = ((value - min) / (max - min)) * 100;
-    return (
-        <div>
-            <div className="flex justify-between items-baseline mb-1.5">
-                <span className="cad-label">{label}</span>
-                <span className="font-mono text-xs text-truarc-text tabular-nums">{format(value)}</span>
-            </div>
-            <input
-                type="range"
-                min={min}
-                max={max}
-                step={step}
-                value={value}
-                onChange={(e) => onChange(parseFloat(e.target.value))}
-                className="slider-input w-full cursor-pointer"
-                style={{ background: `linear-gradient(to right, ${SLIDER_FILL} ${pct}%, ${SLIDER_TRACK} ${pct}%)` }}
-            />
-        </div>
     );
 }

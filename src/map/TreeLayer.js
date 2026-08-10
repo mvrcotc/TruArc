@@ -152,8 +152,13 @@ export default class TreeLayer {
         // displaces its terrain mesh by this factor but hands custom
         // layers an unadjusted matrix, so trees drawn at true altitude
         // would sit below exaggerated ground — buried. See the long note
-        // in mercatorTransform.js; the app currently ships exaggeration
-        // 2.0, which makes this load-bearing rather than theoretical.
+        // in mercatorTransform.js.
+        //
+        // The app now ships true scale (terrainLayers.TERRAIN_EXAGGERATION
+        // = 1.0), so today this reads 1 and the compensation is identity.
+        // It stays because the coupling is real: it is the only thing
+        // keeping trees level with the ground if that constant ever moves,
+        // and a buried forest is a confusing way to rediscover it.
         const exaggeration = this.map?.getTerrain?.()?.exaggeration ?? 1;
 
         this.camera.projectionMatrix = new THREE.Matrix4().fromArray(

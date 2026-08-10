@@ -214,14 +214,14 @@ const MapCanvas = forwardRef(({ onMeasure, onFlightComplete, onMove, selectedDis
     }, []);
 
     // ─── TERRAIN LEGIBILITY LAYERS ──────────────────────────────
-    // Hillshade / contours / mesh exaggeration. Gated on `mapLoaded` so
-    // the first application can't race the style; after that every
-    // settings change re-applies, and applyTerrainLayers is idempotent so
-    // re-running it is just a visibility flip.
+    // Hillshade / contours, plus the true-scale mesh. Gated on
+    // `mapLoaded` so the first application can't race the style; after
+    // that every settings change re-applies, and applyTerrainLayers is
+    // idempotent so re-running it is just a visibility flip.
     useEffect(() => {
         if (!mapLoaded || !mapRef.current) return;
         applyTerrainLayers(mapRef.current, terrain ?? DEFAULT_TERRAIN);
-    }, [mapLoaded, terrain?.hillshade, terrain?.relief, terrain?.contours, terrain?.exaggeration]);
+    }, [mapLoaded, terrain?.hillshade, terrain?.contours]);
 
     // ─── CLICK HANDLERS ─────────────────────────────────────────
 

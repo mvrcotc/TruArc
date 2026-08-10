@@ -51,9 +51,10 @@ export default function App() {
     const [weatherState, setWeatherState] = useState('idle'); // idle|loading|ok|unavailable
     const [weatherExpanded, setWeatherExpanded] = useState(false);
 
-    // Relief shading / contours / mesh exaggeration. Terrain legibility is
-    // a property of the PLACE, like wind — not of a throw — so it lives in
-    // the left rail and persists across mode and course changes.
+    // Relief shading / contours. Terrain legibility is a property of the
+    // PLACE, like wind — not of a throw — so it lives in the left rail and
+    // persists across mode and course changes. Note there is no scale
+    // setting here: the ground always renders true, see terrainLayers.js.
     const [terrain, setTerrain] = useState(DEFAULT_TERRAIN);
     const [terrainExpanded, setTerrainExpanded] = useState(false);
     const [measurement, setMeasurement] = useState(null);

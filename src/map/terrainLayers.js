@@ -28,12 +28,28 @@
  * expression with a typo fails silently in Mapbox — the layer just draws
  * nothing — so "it rendered" is not a test a human reliably performs.
  *
- * ── EXAGGERATION IS COSMETIC, AND MUST STAY THAT WAY ─────────────────
- * `exaggeration` scales the rendered mesh only. It must never reach the
- * physics: `queryTerrainElevation` defaults to `exaggerated: true`, so
- * every call site in this app passes `{ exaggerated: false }`. See the
- * comment in physics/terrainProfile.js — that default had been silently
- * doubling every slope the flight engine integrated.
+ * ── THE GROUND IS NEVER EXAGGERATED ──────────────────────────────────
+ * The mesh renders at 1.0 — true scale — and there is no control to
+ * change it. This app is used to decide real throws, so a hill that
+ * looks steeper than it is makes the picture worse than no picture:
+ * a player reads the shape, picks a line, and the ground disagrees.
+ *
+ * That is a deliberate reversal. This map previously shipped
+ * `exaggeration: 2.0` "for visual drama", and the reason it needed drama
+ * is that satellite imagery alone cannot show relief at all — inflating
+ * the geometry was compensating for a MISSING CUE. Hillshade supplies
+ * that cue honestly: it reads slope off the true DEM and expresses it as
+ * light. So relief shading is what let the exaggeration go, and the two
+ * changes are really one change.
+ *
+ * Consequence: hills look objectively flatter than they used to. That is
+ * the correction, not a regression — the old picture was overstating
+ * every slope by 2×.
+ *
+ * Related: `queryTerrainElevation` defaults to `exaggerated: true`, so
+ * every call site still passes `{ exaggerated: false }` explicitly. With
+ * the mesh at 1.0 that is currently a no-op, but it is the difference
+ * between "correct" and "correct as long as nobody touches a constant."
  */
 
 const METERS_TO_FEET = 3.28084;
@@ -52,20 +68,40 @@ export const DEM_URL = 'mapbox://mapbox.mapbox-terrain-dem-v1';
 export const CONTOUR_URL = 'mapbox://mapbox.mapbox-terrain-v2';
 
 /**
- * Defaults. Hillshade is ON because it is the answer to "I can't see the
- * hills"; contours are OFF because Mapbox's are 10 m apart, which on a
+ * TRUE SCALE. Not a default, not a setting — a constant, with no code
+ * path that reads it from user state. See the header: a distorted ground
+ * is worse than a plain one for anyone throwing at the real hole.
+ *
+ * It stays a named constant rather than a literal `1` because
+ * TreeLayer and PointCloudLayer read `map.getTerrain().exaggeration` per
+ * frame to keep custom 3-D geometry level with the mesh. That machinery
+ * is still correct and still load-bearing; it is simply being handed the
+ * identity now.
+ */
+export const TERRAIN_EXAGGERATION = 1.0;
+
+/**
+ * How hard the relief shade is driven, 0…1. Fixed, for the same reason
+ * the geometry is fixed — but note this one is not a geometric claim at
+ * all. Hillshade brightness is computed FROM the true slope, so it can
+ * only make real relief easier or harder to see; it cannot invent a hill
+ * on flat ground. Turning it up on a flat course still shows flat.
+ *
+ * 0.6 rather than Mapbox's 0.5 default: courses are chosen for gentle,
+ * playable terrain, which is exactly the range where a stock hillshade
+ * reads as haze.
+ */
+const RELIEF_STRENGTH = 0.6;
+
+/**
+ * Hillshade is ON because it is the whole answer to "I can't see the
+ * hills". Contours are OFF because Mapbox's are 10 m apart, which on a
  * course with 20 m of total relief draws two lines and reads as clutter
  * until someone actually wants the number.
- *
- * `exaggeration: 2` preserves what the app already rendered. It is safe
- * to expose as a slider only because of the `exaggerated: false` fix
- * above; before that, dragging it would have changed simulated carry.
  */
 export const DEFAULT_TERRAIN = Object.freeze({
     hillshade: true,
-    relief: 0.6,        // hillshade-exaggeration, 0…1
     contours: false,
-    exaggeration: 2.0,  // 3-D mesh only
 });
 
 /**
@@ -106,14 +142,14 @@ export function contourSourceSpec() {
  * layer exists to prevent. 335° is the cartographic convention (light
  * from the upper left); the visual system reads that as convex.
  */
-export function hillshadeLayerSpec({ relief = DEFAULT_TERRAIN.relief } = {}) {
+export function hillshadeLayerSpec() {
     return {
         id: HILLSHADE_LAYER,
         type: 'hillshade',
         source: HILLSHADE_SOURCE,
         slot: 'bottom',
         paint: {
-            'hillshade-exaggeration': clamp01(relief),
+            'hillshade-exaggeration': RELIEF_STRENGTH,
             'hillshade-illumination-direction': 335,
             'hillshade-illumination-anchor': 'map',
             // Neutral, slightly cool shadows and a soft warm highlight:
@@ -184,15 +220,6 @@ export function contourLabelLayerSpec() {
     };
 }
 
-function clamp01(v) {
-    return Math.max(0, Math.min(1, Number.isFinite(v) ? v : 0));
-}
-
-/** Clamp to the range the UI slider offers, so a bad value can't flatten the map. */
-export function clampExaggeration(v) {
-    return Math.max(0, Math.min(4, Number.isFinite(v) ? v : DEFAULT_TERRAIN.exaggeration));
-}
-
 /**
  * Bring the map in line with `settings`, adding whatever is missing.
  *
@@ -210,10 +237,13 @@ export function applyTerrainLayers(map, settings = DEFAULT_TERRAIN) {
     if (!map) return;
     const s = { ...DEFAULT_TERRAIN, ...settings };
 
-    // ── 3-D mesh ──
+    // ── 3-D mesh, always at true scale ──
+    // The exaggeration argument is the module constant, never anything
+    // derived from `settings` — there is deliberately no way for a caller
+    // to distort the ground.
     try {
         if (!map.getSource(DEM_SOURCE)) map.addSource(DEM_SOURCE, demSourceSpec());
-        map.setTerrain({ source: DEM_SOURCE, exaggeration: clampExaggeration(s.exaggeration) });
+        map.setTerrain({ source: DEM_SOURCE, exaggeration: TERRAIN_EXAGGERATION });
     } catch (e) {
         console.warn('[terrain] mesh:', e?.message ?? e);
     }
@@ -225,9 +255,7 @@ export function applyTerrainLayers(map, settings = DEFAULT_TERRAIN) {
                 map.addSource(HILLSHADE_SOURCE, hillshadeSourceSpec());
             }
             if (!map.getLayer(HILLSHADE_LAYER)) {
-                map.addLayer(hillshadeLayerSpec(s));
-            } else {
-                map.setPaintProperty(HILLSHADE_LAYER, 'hillshade-exaggeration', clamp01(s.relief));
+                map.addLayer(hillshadeLayerSpec());
             }
         }
         if (map.getLayer(HILLSHADE_LAYER)) {
