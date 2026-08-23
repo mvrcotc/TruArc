@@ -207,15 +207,23 @@ still short of the ~50 ft it should be. `CLa_perGlide` fell 0.167 → 0.058, so 
 now discriminates less — a partial degeneracy traded, not eliminated. `Clp` and
 `Cmq` still pin at their bounds wanting less damping.
 
-**One regression came with it, and it is recorded rather than papered over.**
+**The refit was NOT landed.** It regressed
 `tests/physics/discProfile.test.mjs` → "a strong headwind no longer flips an
-overstable driver into a hairpin" now fails: right-excursion 10 ft against its
-`< 3 m` (9.84 ft) guard, a 2 % overshoot. That suite was 140/140 before and is
-139/140 after. The test was not loosened to accommodate the new fit — a guard
-against a bug that was already fixed once is exactly the wrong thing to relax, and
-the overshoot is a genuine (if small) signal that headwind behaviour degraded.
-It is accepted here only because the mapping it replaces was *physically
-impossible*, which is the larger defect; revisit when field data lands.
+overstable driver into a hairpin": right-excursion 10 ft against its `< 3 m`
+(9.84 ft) guard, taking `test:collision` from 140/140 to 139/140.
+
+That suite is a **blocking, calibration-independent** step in
+`.github/workflows/physics-baseline.yml` — only the envelope suite is
+`continue-on-error`. A mapping that breaks it is out of contract regardless of how
+it scores, and the two ways out are both wrong: loosening a guard against an
+already-fixed bug, or leaving the ground-truth job permanently red and destroying
+its signal for every later PR. So `calibratedMapping.json` stays at the 2026-08-08
+fit and the 14/35 result is recorded here rather than shipped.
+
+The shipped mapping is therefore still the physically-impossible one. That is now
+*known and guarded* rather than invisible: `tools/calibrate.mjs` charges the
+derived-CL0 penalty, so the next calibration run cannot re-enter that corner
+silently. Re-run it once release speeds are settled.
 
 **What this rules out is the more useful result.** With physically-legal lift the
 model reaches only 4/23 absolute envelopes, and the misses concentrate where release
