@@ -68,6 +68,15 @@ jobs:
       - name: Run collision, voxel-grid & disc-profile tests
         run: npm run test:collision
 
+      # Measured-throw loader. Blocking, and NOT calibration-dependent:
+      # these assert validation, tolerance construction and precedence,
+      # none of which move when the mapping does. A row that loads when
+      # it should have been rejected outranks an expert target and feeds
+      # all 19 calibration parameters, so this is a data-integrity gate
+      # rather than a quality one.
+      - name: Run field-data loader tests
+        run: npm run test:field-data
+
       - name: Run flight envelope + comparative assertions
         continue-on-error: true
         run: npm run test:physics

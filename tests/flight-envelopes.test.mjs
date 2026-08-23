@@ -19,9 +19,22 @@
 
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { ENVELOPES, COMPARATIVES } from './ground-truth/flight-envelopes.mjs';
+import { ENVELOPES as SYNTHESIZED, COMPARATIVES as SYNTH_COMPARATIVES } from './ground-truth/flight-envelopes.mjs';
+import { loadFieldEnvelopes, mergeFieldEnvelopes, remapComparatives } from './ground-truth/field-data.mjs';
 import { runEnvelope, engineName } from './ground-truth/adapters/index.mjs';
 import { extractMetrics, checkShape, checkInvariants } from './ground-truth/metrics.mjs';
+
+// Measured throws outrank domain judgement. When a row displaces a
+// synthesized target the swap is ANNOUNCED — a suite that quietly
+// changed what it tests is worse than one that fails.
+const FIELD = loadFieldEnvelopes();
+const { envelopes: ENVELOPES, replaced, idMap } = mergeFieldEnvelopes(SYNTHESIZED, FIELD);
+const COMPARATIVES = remapComparatives(SYNTH_COMPARATIVES, idMap);
+
+if (FIELD.length) {
+    console.log(`[ground-truth] ${FIELD.length} measured throw(s) loaded from field data.`);
+    for (const r of replaced) console.log(`[ground-truth]   ${r.id} superseded by ${r.by}`);
+}
 
 // Cache so comparative assertions referencing an envelope id by string
 // don't re-simulate it.
@@ -62,9 +75,15 @@ describe('Flight envelopes — absolute targets', () => {
                 }
             }
 
-            const shapeResult = checkShape(envelope.expect.shape, result.points, result.landingIndex, metrics);
-            if (!shapeResult.pass) {
-                failures.push(`shape '${envelope.expect.shape}' failed: ${shapeResult.detail}`);
+            // A measured row asserts no shape — a rangefinder records
+            // where a disc landed, not whether it drew an S. Absent
+            // expectation means nothing to check, not a free pass for a
+            // synthesized envelope that forgot one.
+            if (envelope.expect.shape) {
+                const shapeResult = checkShape(envelope.expect.shape, result.points, result.landingIndex, metrics);
+                if (!shapeResult.pass) {
+                    failures.push(`shape '${envelope.expect.shape}' failed: ${shapeResult.detail}`);
+                }
             }
 
             const invariants = checkInvariants(result.points, result.landingIndex, result.flightTimeS);

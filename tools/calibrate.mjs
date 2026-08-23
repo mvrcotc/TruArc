@@ -28,13 +28,22 @@
 import { writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { ENVELOPES, COMPARATIVES } from '../tests/ground-truth/flight-envelopes.mjs';
+import { ENVELOPES as SYNTHESIZED, COMPARATIVES as SYNTH_COMPARATIVES } from '../tests/ground-truth/flight-envelopes.mjs';
+import { loadFieldEnvelopes, mergeFieldEnvelopes, remapComparatives } from '../tests/ground-truth/field-data.mjs';
 import { runEnvelope } from '../tests/ground-truth/adapters/sixDof.mjs';
 import { extractMetrics, checkShape, checkInvariants } from '../tests/ground-truth/metrics.mjs';
 import { PRIOR_MAPPING, CALIBRATION_BOUNDS, ACTIVE_MAPPING } from '../src/physics/discCoefficients.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const OUT_PATH = join(__dirname, '..', 'src', 'physics', 'calibratedMapping.json');
+
+// Fitting against measured throws where they exist. A row that displaces
+// a synthesized target changes what is being optimised, so the swap is
+// printed rather than applied silently.
+const FIELD = loadFieldEnvelopes(join(__dirname, '..', 'tests', 'ground-truth', 'field-data'));
+const { envelopes: ENVELOPES, replaced: FIELD_REPLACED, idMap: FIELD_ID_MAP } = mergeFieldEnvelopes(SYNTHESIZED, FIELD);
+// Comparatives reference envelopes by id; a superseded id must follow.
+const COMPARATIVES = remapComparatives(SYNTH_COMPARATIVES, FIELD_ID_MAP);
 
 // ─── CLI ─────────────────────────────────────────────────────────
 const args = process.argv.slice(2);
@@ -140,8 +149,12 @@ function evaluate(mapping, dt = CALIB_DT) {
             if (p > 0) why.push(`${key}=${metrics[key].toFixed(1)}∉[${range[0]},${range[1]}]`);
         }
 
-        const shape = checkShape(env.expect.shape, result.points, result.landingIndex, metrics);
-        if (!shape.pass) { envScore += 2; why.push(`shape:${env.expect.shape}`); }
+        // Measured rows assert no shape — nothing to check, and not a
+        // free pass for a synthesized envelope missing one.
+        if (env.expect.shape) {
+            const shape = checkShape(env.expect.shape, result.points, result.landingIndex, metrics);
+            if (!shape.pass) { envScore += 2; why.push(`shape:${env.expect.shape}`); }
+        }
 
         const inv = checkInvariants(result.points, result.landingIndex, result.flightTimeS);
         if (!inv.pass) { envScore += 3; why.push(`inv:${inv.problems[0]}`); }
@@ -284,12 +297,25 @@ function report(label, r) {
     );
 }
 
+// Printed before the DRY exit too: whether measured throws are in play
+// changes what any score below actually means.
+function reportFieldData() {
+    if (FIELD.length) {
+        console.log(`${FIELD.length} measured throw(s) included; ${FIELD_REPLACED.length} synthesized target(s) superseded`);
+        for (const r of FIELD_REPLACED) console.log(`    ${r.id} → ${r.by}`);
+    } else {
+        console.log('no field data — every target is domain judgement (see tests/ground-truth/field-data/README.md)');
+    }
+}
+
 if (DRY) {
+    reportFieldData();
     report('current mapping:', evaluate(ACTIVE_MAPPING, VERIFY_DT));
     process.exit(0);
 }
 
 console.log(`Calibrating ${PARAMS.length} parameters against ${ENVELOPES.length + COMPARATIVES.length} ground-truth cases`);
+reportFieldData();
 report('prior      ', evaluate(PRIOR_MAPPING, VERIFY_DT));
 
 const objective = (x) => evaluate(decode(x)).score;

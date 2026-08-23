@@ -12,6 +12,7 @@
         "test:physics": "node --test tests/flight-envelopes.test.mjs",
         "test:physics-invariants": "node --test tests/physics-invariants.test.mjs",
         "test:physics-integration": "node --test tests/physics-integration.test.mjs",
+        "test:field-data": "node --test tests/ground-truth/field-data.test.mjs",
         "test:map": "node --test tests/map/*.test.mjs",
         "test:bag": "node --test tests/bag/*.test.mjs",
         "test:utils": "node --test tests/utils/*.test.mjs",
