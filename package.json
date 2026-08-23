@@ -13,6 +13,7 @@
         "test:physics-invariants": "node --test tests/physics-invariants.test.mjs",
         "test:physics-integration": "node --test tests/physics-integration.test.mjs",
         "test:map": "node --test tests/map/*.test.mjs",
+        "test:bag": "node --test tests/bag/*.test.mjs",
         "test:utils": "node --test tests/utils/*.test.mjs",
         "test:collision": "node --test tests/physics/*.test.mjs",
         "test:data": "node --test tests/data/*.test.mjs",
