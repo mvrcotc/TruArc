@@ -27,6 +27,7 @@ import FloatingCompass from './components/FloatingCompass';
 import WeatherPanel from './components/WeatherPanel';
 import TerrainPanel from './components/TerrainPanel';
 import CurrentWeather from './components/CurrentWeather';
+import HoleCard from './components/HoleCard';
 import { DEFAULT_TERRAIN } from './map/terrainLayers';
 import { DEFAULT_MAP_TYPE } from './map/mapStyles';
 
@@ -247,6 +248,31 @@ export default function App() {
         mapRef.current?.highlightHole(hole);
     }, []);
 
+    // ─── HOLE TERRAIN READING ─────────────────────────────────────
+    // Terrain tiles stream in after the camera moves, so the first read
+    // for a hole usually comes back null. Poll briefly rather than
+    // rendering a card of zeros — a flat-looking hole and an unloaded
+    // one are indistinguishable to the player, and only one is true.
+    const [holeReading, setHoleReading] = useState(null);
+    useEffect(() => {
+        setHoleReading(null);
+        if (!activeHole?.tee || !activeHole?.basket) return undefined;
+
+        let cancelled = false;
+        let tries = 0;
+        const attempt = () => {
+            if (cancelled) return;
+            const reading = mapRef.current?.readHoleTerrain?.(activeHole);
+            if (reading) { setHoleReading(reading); return; }
+            // ~6 s of patience, then give up silently. A missing card is
+            // honest; a fabricated one is not.
+            if (++tries < 20) timer = setTimeout(attempt, 300);
+        };
+        let timer = setTimeout(attempt, 250);
+
+        return () => { cancelled = true; clearTimeout(timer); };
+    }, [activeHole]);
+
     const handleFlyTo = useCallback((lng, lat, zoom) => {
         mapRef.current?.flyTo(lng, lat, zoom);
     }, []);
@@ -396,6 +422,14 @@ export default function App() {
                     activeHole={activeHole}
                     activeCourse={activeCourse}
                 />
+
+                {/* What the ground does — measured, not simulated. Shown
+                    wherever a hole is selected and the reading resolved;
+                    it answers "how does this hole play" rather than
+                    anything about a particular throw. */}
+                {activeHole && holeReading && (
+                    <HoleCard hole={activeHole} reading={holeReading} />
+                )}
 
                 {/* Wind lives on this side because it belongs to the
                     PLACE, not to the disc in your hand. Shown in throw

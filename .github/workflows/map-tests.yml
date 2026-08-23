@@ -26,8 +26,10 @@ on:
       - 'src/utils/calibrationOffset.js'
       - 'src/components/MapCanvas.jsx'
       - 'src/components/CalibrationPanel.jsx'
+      - 'src/holes/**'
       - 'tests/map/**'
       - 'tests/utils/**'
+      - 'tests/holes/**'
       - 'package.json'
   pull_request:
     paths:
@@ -35,8 +37,10 @@ on:
       - 'src/utils/calibrationOffset.js'
       - 'src/components/MapCanvas.jsx'
       - 'src/components/CalibrationPanel.jsx'
+      - 'src/holes/**'
       - 'tests/map/**'
       - 'tests/utils/**'
+      - 'tests/holes/**'
       - 'package.json'
   workflow_dispatch: {}
 
@@ -57,6 +61,12 @@ jobs:
 
       - name: Run calibration-offset helper tests
         run: npm run test:utils
+
+      # Terrain reading (src/holes). Pure geometry over survey elevation
+      # — no calibration, no simulation — so unlike the flight suites
+      # these are expected to pass outright and block when they don't.
+      - name: Run hole terrain tests
+        run: npm run test:holes
 
       - name: Build (validates TreeLayer/PointCloudLayer bundling, e.g. the BufferGeometryUtils import path)
         run: npm run build

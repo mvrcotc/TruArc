@@ -16,6 +16,7 @@ import {
 } from '../utils/flightPhysics';
 import { simulateDiscFlightAsync, loadCourseCollisionData, clearCourseCollisionData } from '../physics/flightEngine';
 import { buildTerrainProfile } from '../physics/terrainProfile';
+import { sampleHoleProfile, readHole } from '../holes/holeTerrain';
 import { courseToGeoJSON } from '../data/courses';
 import { applyOffsetToGeoJSON, applyOffsetToTrees, applyOffsetToPointCloud, applyOffsetToVoxelHeader } from '../utils/calibrationOffset';
 import { applyTerrainLayers, DEFAULT_TERRAIN } from '../map/terrainLayers';
@@ -74,6 +75,29 @@ const MapCanvas = forwardRef(({ onMeasure, onFlightComplete, onMove, selectedDis
     useImperativeHandle(ref, () => ({
         flyTo(lng, lat, zoom = 17) {
             mapRef.current?.flyTo({ center: [lng, lat], zoom, pitch: 60, bearing: -20, duration: 2500 });
+        },
+        /**
+         * Sample the ground between tee and basket for the hole card.
+         *
+         * Exposed imperatively because `queryTerrainElevation` needs the
+         * live GL context, and returns null when terrain tiles for this
+         * area have not loaded yet — the caller retries rather than
+         * rendering a card full of zeros, which would be indistinguishable
+         * from a genuinely flat hole.
+         */
+        readHoleTerrain(hole) {
+            const map = mapRef.current;
+            if (!map || !hole?.tee || !hole?.basket) return null;
+            if (!map.isStyleLoaded?.() || !map.getTerrain?.()) return null;
+
+            const profile = sampleHoleProfile(map, hole.tee, hole.basket);
+            if (!profile) return null;
+
+            // All-zero means the DEM had nothing to say here, not that
+            // the course is a billiard table.
+            if (profile.elevFt.every((v) => v === 0)) return null;
+
+            return readHole(profile);
         },
         flyToLanding(landing, lookAt = null) {
             const map = mapRef.current;
