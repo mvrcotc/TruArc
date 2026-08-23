@@ -183,11 +183,53 @@ the engine's moments of inertia were physically impossible (`I_axial` below the
 uniform-disc value for a rim-weighted disc; `I_transverse` an independent guess instead
 of the perpendicular-axis-theorem-mandated `I_axial/2`) — too little rotational inertia
 made the disc over-bank, which is what had made strong fade incompatible with a long
-flight in the first place. Fixed. Current calibrated mapping: **13/35** against the
-corrected ground truth, non-degenerate (fade still meaningfully differentiates molds).
-Three damping parameters pin at their bound wanting *less* damping — a plausible
-physical direction, not disqualifying, and left as a follow-up calibration pass rather
-than blocking the integration work below.
+flight in the first place. Fixed.
+
+**2026-08-23 recalibration — 13/35 → 14/35, and what it ruled out.**
+
+The 2026-08-08 mapping was found to be **physically impossible**, in a way the
+per-parameter bounds could not catch. Zero-α lift for a fast disc is
+`CL0_base + speed·CL0_perSpeed`; that fit reached 0.1445 and −0.00828, both
+comfortably in-bounds, jointly giving **CL0 ≈ 0.029 at speed 14**. A driver that
+makes no lift at zero α flies at high angle of attack for its whole flight, sits
+above trim, and therefore fades hard *and* drags short — which is both headline
+symptoms in the residuals from one cause. It also collapsed the disc ladder: a
+Firebird and a Roc landed **3 ft apart** in `src/bag/coverage.js`.
+
+Tightening the `CL0_perSpeed` box does not close this, because `CL0_base` falls to
+meet it (at its 0.05 floor with a −0.006 slope, lift goes *negative* at speed 12).
+`tools/calibrate.mjs` now charges a penalty on the **derived** quantity instead.
+
+Refitting under that constraint gives 14/35 (envelopes 4/23, comparatives 10/12),
+physics penalty ~0. The fade degeneracy noted below is **fixed** (fade 0 → +12 ft,
+fade 5 → −26 ft, was a 25 ft spread). Firebird−Roc separation improved 3 → 17 ft,
+still short of the ~50 ft it should be. `CLa_perGlide` fell 0.167 → 0.058, so glide
+now discriminates less — a partial degeneracy traded, not eliminated. `Clp` and
+`Cmq` still pin at their bounds wanting less damping.
+
+**One regression came with it, and it is recorded rather than papered over.**
+`tests/physics/discProfile.test.mjs` → "a strong headwind no longer flips an
+overstable driver into a hairpin" now fails: right-excursion 10 ft against its
+`< 3 m` (9.84 ft) guard, a 2 % overshoot. That suite was 140/140 before and is
+139/140 after. The test was not loosened to accommodate the new fit — a guard
+against a bug that was already fixed once is exactly the wrong thing to relax, and
+the overshoot is a genuine (if small) signal that headwind behaviour degraded.
+It is accepted here only because the mapping it replaces was *physically
+impossible*, which is the larger defect; revisit when field data lands.
+
+**What this rules out is the more useful result.** With physically-legal lift the
+model reaches only 4/23 absolute envelopes, and the misses concentrate where release
+speed is lowest — `leopard-rec-flat` −38 %, `destroyer-rec-flat` −28 %,
+`katana-adv-lowpower` −24 %. Missing kinetic energy cannot be recovered through lift
+coefficients without leaving physical bounds, which is exactly what the previous fit
+was doing. So the remaining error is **not** in the coefficient mapping: it is in the
+release-speed model (`THROWER_TIERS` × `discReleaseFactor`), in the ground-truth
+targets, or in both. `leopard-rec-flat` releases at 40 × 0.85 = **34 mph** and is
+expected to carry 195–255 ft.
+
+Nothing in this repo can currently adjudicate that — `tests/ground-truth/field-data/`
+is still empty and `FIELD_DATA_DIR` has no loader. Further coefficient calibration is
+not the next move; measuring real release speeds and landings is.
 
 **✅ Section 1 steps 4–6 (Sonnet tier) — DONE:**
 - `src/physics/worker.js` — Web Worker hosting both engines behind one message
