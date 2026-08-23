@@ -56,6 +56,45 @@ const PARAMS = Object.keys(CALIBRATION_BOUNDS);
 
 // ─── OBJECTIVE ───────────────────────────────────────────────────
 
+/**
+ * ── DERIVED-QUANTITY CONSTRAINTS ─────────────────────────────────
+ *
+ * CALIBRATION_BOUNDS is a box: it constrains each parameter alone. Some
+ * unphysical mappings are reachable with every individual parameter
+ * comfortably in range, because it is a COMBINATION that is impossible.
+ *
+ * The one that actually bit: zero-α lift for a fast disc is
+ * `CL0_base + speed·CL0_perSpeed`, and the 2026-08-08 fit reached
+ * 0.1445 and −0.00828 — both in-bounds, jointly giving CL0 ≈ 0.029 at
+ * speed 14. A driver that makes no lift at zero α flies at a high angle
+ * of attack for its whole flight, which sits it above trim, which makes
+ * it fade hard AND drag short. That single degeneracy produced both
+ * headline symptoms in the residuals (distances 25–40 % short, every
+ * stable disc finishing far left), and it collapsed the disc ladder:
+ * a Firebird and a Roc landed 3 ft apart in src/bag/coverage.js.
+ *
+ * Tightening the CL0_perSpeed box alone does NOT close this — CL0_base
+ * can fall to meet it (its floor of 0.05 with a −0.006 slope makes lift
+ * NEGATIVE at speed 12, which is worse). The constraint has to be on
+ * the derived value, so it is expressed here rather than as a bound.
+ *
+ * The floor is deliberately conservative. Hummel & Hubbard measured
+ * CL0 ≈ 0.15–0.2 for a standard Frisbee; a golf driver is far flatter
+ * and sleeker, so a much lower value is legitimate — but it cannot
+ * approach zero, or the disc could not carry the distances these discs
+ * demonstrably carry.
+ */
+const MAX_DISC_SPEED = 14;
+const MIN_CL0_AT_MAX_SPEED = 0.06;
+const PHYSICS_PENALTY_WEIGHT = 40;
+
+function physicsPenalty(mapping) {
+    const cl0Fast = mapping.CL0_base + MAX_DISC_SPEED * mapping.CL0_perSpeed;
+    if (cl0Fast >= MIN_CL0_AT_MAX_SPEED) return 0;
+    const shortfall = (MIN_CL0_AT_MAX_SPEED - cl0Fast) / MIN_CL0_AT_MAX_SPEED;
+    return Math.min(200, shortfall ** 2 * PHYSICS_PENALTY_WEIGHT);
+}
+
 /** Squared, range-width-normalised miss distance; 0 inside the range. */
 function rangePenalty(value, [lo, hi]) {
     if (!Number.isFinite(value)) return 25;
@@ -75,7 +114,9 @@ function evaluate(mapping, dt = CALIB_DT) {
         return rec;
     };
 
-    let score = 0;
+    // Charged before any case runs: an unphysical mapping should be
+    // unattractive even where it happens to score well.
+    let score = physicsPenalty(mapping);
     let envelopesPassing = 0;
     const failures = [];
 
@@ -138,6 +179,10 @@ function evaluate(mapping, dt = CALIB_DT) {
 
     return {
         score,
+        // Reported separately so a run's score stays comparable to runs
+        // made before this penalty existed — the fit-quality half of the
+        // number is `score - physics`.
+        physics: physicsPenalty(mapping),
         envelopesPassing,
         comparativesPassing,
         passing: envelopesPassing + comparativesPassing,
@@ -233,7 +278,8 @@ function mulberry32(seed) {
 
 function report(label, r) {
     console.log(
-        `${label}  score=${r.score.toFixed(2)}  passing=${r.passing}/${r.total} `
+        `${label}  score=${r.score.toFixed(2)} (fit ${(r.score - r.physics).toFixed(2)} `
+        + `+ physics ${r.physics.toFixed(2)})  passing=${r.passing}/${r.total} `
         + `(envelopes ${r.envelopesPassing}/${ENVELOPES.length}, comparatives ${r.comparativesPassing}/${COMPARATIVES.length})`,
     );
 }
