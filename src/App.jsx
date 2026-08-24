@@ -12,7 +12,8 @@ import { DEFAULT_THROW_SETTINGS } from './physics/throwerProfile';
 import { fetchCourseWeather } from './utils/weather';
 import { useAuth } from './context/AuthContext';
 import { holeEditReducer, createEditState, EDIT_ACTIONS } from './editor/holeEditState';
-import { exportHoleEdit, importHoleEdit } from './editor/courseEditExport';
+import { exportHoleEdit, importHoleEdit, mergeHoleEdit } from './editor/courseEditExport';
+import { loadEdits, saveEdit } from './editor/localEdits';
 import { saveCourseEdit } from './firebase/courseEdits';
 
 import MapCanvas from './components/MapCanvas';
@@ -71,6 +72,31 @@ export default function App() {
     const [activeCourse, setActiveCourse] = useState(null);
     const [activeHole, setActiveHole] = useState(null);
 
+    // ─── PLACED PINS ──────────────────────────────────────────────
+    // Hole edits the player has saved, keyed `courseId:holeNum`. Read
+    // ONCE via a lazy initializer, for the same reason the disc bag is:
+    // an effect would leave every hole briefly un-merged on first paint,
+    // which would flash the "no pin" card at someone who has already
+    // placed one.
+    //
+    // Held in state rather than read per render because placing a
+    // basket is what turns a hole `measured`, and the map, the hole
+    // card and the course list all have to move together when it does.
+    const [holeEdits, setHoleEdits] = useState(() => loadEdits());
+
+    /**
+     * A hole as the player should see it: published coordinates with
+     * their own placement merged over the top. `mergeHoleEdit` upgrades
+     * dataQuality to 'measured' only when the edit supplies BOTH a tee
+     * and a basket, so a hole with one pin placed stays honestly
+     * estimated.
+     */
+    const resolveHole = useCallback((hole, courseId) => {
+        if (!hole) return hole;
+        const edit = holeEdits[`${courseId ?? activeCourse?.id ?? ''}:${hole.num ?? ''}`];
+        return edit ? mergeHoleEdit(hole, edit) : hole;
+    }, [holeEdits, activeCourse?.id]);
+
     // Disc bag — restored from localStorage on first render. A lazy
     // initializer (not an effect) so the bag is never briefly empty
     // before being repopulated, and storage is read exactly ONCE: the
@@ -118,24 +144,57 @@ export default function App() {
         const key = `${activeCourse?.id ?? ''}:${activeHole?.num ?? ''}`;
         if (editKeyRef.current === key) return;
         editKeyRef.current = key;
-        editDispatch({ type: EDIT_ACTIONS.LOAD, edit: createEditState(activeCourse?.id ?? null, activeHole?.num ?? null) });
+        // Seed from any saved placement so re-opening a hole you have
+        // already pinned starts from those pins rather than a blank
+        // slate that invites placing them a second time.
+        const saved = holeEdits[`${activeCourse?.id ?? ''}:${activeHole?.num ?? ''}`];
+        editDispatch({
+            type: EDIT_ACTIONS.LOAD,
+            edit: createEditState(activeCourse?.id ?? null, activeHole?.num ?? null, saved ?? {}),
+        });
         setEditSaveError(null);
         setEditSavedAt(null);
-    }, [activeCourse?.id, activeHole?.num, mode]);
+    }, [activeCourse?.id, activeHole?.num, mode, holeEdits]);
 
+    /**
+     * Save a placement. Local storage FIRST and unconditionally — a
+     * placed basket is what turns a hole `measured`, and making that
+     * depend on being signed in would put an account wall in front of
+     * the app's most valuable action. Firestore is a sync on top for
+     * anyone who is signed in, and its failure must not lose the pin
+     * that is already safely on this device.
+     */
     const handleEditSave = useCallback(async () => {
-        if (!user) return;
+        const exported = exportHoleEdit(editState);
+        const courseId = editState.courseId ?? activeCourse?.id ?? null;
+        const holeNum = editState.holeNum ?? activeHole?.num ?? null;
+
         setEditSaving(true);
         setEditSaveError(null);
-        try {
-            await saveCourseEdit(user.uid, exportHoleEdit(editState));
+
+        const storedLocally = saveEdit(courseId, holeNum, exported);
+        if (storedLocally) {
+            // Re-merge immediately: the map, the hole card and the course
+            // list should all reflect the new pin without a reload.
+            setHoleEdits((prev) => ({ ...prev, [`${courseId}:${holeNum}`]: exported }));
             setEditSavedAt(Date.now());
-        } catch (err) {
-            setEditSaveError(err?.message || 'Save failed');
-        } finally {
-            setEditSaving(false);
+        } else {
+            setEditSaveError('Could not save to this device (private browsing?)');
         }
-    }, [user, editState]);
+
+        if (user) {
+            try {
+                await saveCourseEdit(user.uid, exported);
+            } catch (err) {
+                // Named as a sync failure, not a save failure — the pin
+                // is on the device either way and saying otherwise would
+                // invite the player to place it again.
+                setEditSaveError(`Saved on this device; cloud sync failed (${err?.message || 'unknown'})`);
+            }
+        }
+
+        setEditSaving(false);
+    }, [user, editState, activeCourse?.id, activeHole?.num]);
 
     const handleEditExport = useCallback(() => {
         const json = JSON.stringify(exportHoleEdit(editState), null, 2);
@@ -247,10 +306,11 @@ export default function App() {
     }, []);
 
     const handleSelectHole = useCallback((hole, course) => {
-        setActiveHole(hole);
+        const resolved = resolveHole(hole, (course ?? activeCourse)?.id);
+        setActiveHole(resolved);
         if (course) setActiveCourse(course);
-        mapRef.current?.highlightHole(hole);
-    }, []);
+        mapRef.current?.highlightHole(resolved);
+    }, [resolveHole, activeCourse]);
 
     // ─── HOLE TERRAIN READING ─────────────────────────────────────
     // Terrain tiles stream in after the camera moves, so the first read
@@ -434,7 +494,11 @@ export default function App() {
                     it answers "how does this hole play" rather than
                     anything about a particular throw. */}
                 {activeHole && (
-                    <HoleCard hole={activeHole} reading={holeReading} />
+                    <HoleCard
+                        hole={activeHole}
+                        reading={holeReading}
+                        onPlacePins={() => setMode('edit')}
+                    />
                 )}
 
                 {/* Wind lives on this side because it belongs to the

@@ -43,7 +43,7 @@
 import React from 'react';
 import { motion } from 'framer-motion';
 import {
-    Mountain, Eye, EyeOff, MoveHorizontal, TrendingDown, TrendingUp, Minus, MapPinOff,
+    Mountain, Eye, EyeOff, MoveHorizontal, TrendingDown, TrendingUp, Minus, MapPinOff, MapPin,
 } from 'lucide-react';
 import { FLAT_THRESHOLD_FT } from '../holes/holeTerrain';
 
@@ -54,9 +54,9 @@ export function holeSupportsReading(hole) {
     return hole?.dataQuality === 'measured' && !!hole?.tee && !!hole?.basket;
 }
 
-export default function HoleCard({ hole, reading }) {
+export default function HoleCard({ hole, reading, onPlacePins }) {
     if (!hole) return null;
-    if (!holeSupportsReading(hole)) return <NoReading hole={hole} />;
+    if (!holeSupportsReading(hole)) return <NoReading hole={hole} onPlacePins={onPlacePins} />;
     if (!reading) return null;
 
     const { elevationChangeFt: elev, visibility, slopes, summary, lengthFt } = reading;
@@ -138,7 +138,7 @@ export default function HoleCard({ hole, reading }) {
  * reason plainly — an unexplained blank reads as a broken feature, and
  * the explanation happens to be the argument for placing the pin.
  */
-function NoReading({ hole }) {
+function NoReading({ hole, onPlacePins }) {
     return (
         <motion.div
             initial={{ opacity: 0, y: -6 }}
@@ -161,9 +161,26 @@ function NoReading({ hole }) {
                 line to a pin that might be 70&nbsp;ft off would give you
                 confident numbers about the wrong part of the fairway.
             </p>
-            <p className="text-micro text-truarc-muted/45 leading-relaxed mt-1.5">
-                Drop the real basket in the hole editor and the reading appears.
-            </p>
+            {/* The explanation and the fix in one place. Edit mode has
+                no toolbar button — it is course-setup tooling, not a
+                player mode — so without this the only route to it is an
+                undocumented keyboard shortcut, and the single most
+                valuable action in the app would go undiscovered. */}
+            {onPlacePins ? (
+                <button
+                    onClick={onPlacePins}
+                    className="mt-2.5 w-full flex items-center justify-center gap-1.5 py-1.5 rounded-md
+                               bg-truarc-accent/[0.14] border border-truarc-accent/40 text-truarc-accent
+                               hover:bg-truarc-accent/[0.22] transition-colors duration-150"
+                >
+                    <MapPin size={12} />
+                    <span className="text-micro">Place the tee and basket</span>
+                </button>
+            ) : (
+                <p className="text-micro text-truarc-muted/45 leading-relaxed mt-1.5">
+                    Drop the real basket in the hole editor and the reading appears.
+                </p>
+            )}
         </motion.div>
     );
 }
