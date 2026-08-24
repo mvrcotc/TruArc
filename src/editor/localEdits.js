@@ -36,6 +36,7 @@
 import { importHoleEdit } from './courseEditExport.js';
 
 const KEY = 'truarc_hole_edits_v1';
+const OBSERVER_KEY = 'truarc_observer_id_v1';
 
 /** `courseId:holeNum` — one entry per hole, latest placement wins. */
 export function editKey(courseId, holeNum) {
@@ -118,4 +119,34 @@ export function editedHoleCount(courseId = null) {
     const keys = Object.keys(loadEdits());
     if (courseId == null) return keys.length;
     return keys.filter((k) => k.startsWith(`${courseId}:`)).length;
+}
+
+/**
+ * A stable anonymous id for this device, minted on first use.
+ *
+ * Pin consensus counts OBSERVERS, not placements — one person nudging
+ * their own pin twice must not look like two people agreeing — so every
+ * placement needs an identity attached, including for someone who has
+ * never signed in. A signed-in user's uid is preferable when available
+ * (it follows them across devices); this is the fallback that keeps the
+ * feature working without an account.
+ *
+ * Not a security boundary. Anyone can clear it and mint another, so it
+ * cannot stop a determined person from voting twice — that needs
+ * server-side identity, and belongs with the shared-pool sync that does
+ * not exist yet. What it does buy is correctness against the ordinary
+ * case: honest repeat placements by the same person.
+ */
+export function localObserverId() {
+    try {
+        const existing = localStorage.getItem(OBSERVER_KEY);
+        if (existing) return existing;
+        const minted = `local-${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`;
+        localStorage.setItem(OBSERVER_KEY, minted);
+        return minted;
+    } catch {
+        // Storage unavailable: a per-session id still keeps one person
+        // from self-confirming within this session.
+        return 'local-ephemeral';
+    }
 }

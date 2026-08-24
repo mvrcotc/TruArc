@@ -46,6 +46,7 @@ import {
     Mountain, Eye, EyeOff, MoveHorizontal, TrendingDown, TrendingUp, Minus, MapPinOff, MapPin,
 } from 'lucide-react';
 import { FLAT_THRESHOLD_FT } from '../holes/holeTerrain';
+import { PIN_STATUS, describeConsensus } from '../editor/pinConsensus';
 
 const round5 = (v) => Math.round(v / 5) * 5;
 
@@ -54,7 +55,7 @@ export function holeSupportsReading(hole) {
     return hole?.dataQuality === 'measured' && !!hole?.tee && !!hole?.basket;
 }
 
-export default function HoleCard({ hole, reading, onPlacePins }) {
+export default function HoleCard({ hole, reading, onPlacePins, consensus }) {
     if (!hole) return null;
     if (!holeSupportsReading(hole)) return <NoReading hole={hole} onPlacePins={onPlacePins} />;
     if (!reading) return null;
@@ -85,10 +86,12 @@ export default function HoleCard({ hole, reading, onPlacePins }) {
                     {hole?.num ? `Hole ${hole.num} · Ground` : 'Ground'}
                 </span>
                 {/* The badge is load-bearing: it is how a player knows
-                    which numbers in this app to trust. */}
-                <span className="ml-auto text-micro font-mono px-2 py-0.5 rounded-full bg-emerald-400/10 text-emerald-300/90">
-                    MEASURED
-                </span>
+                    which numbers in this app to trust. It reports how the
+                    PIN was established, not merely that terrain was
+                    sampled — the elevation data is always survey-grade,
+                    so saying MEASURED over an unconfirmed placement would
+                    put the wrong word on the weakest link. */}
+                <PinBadge consensus={consensus} />
             </div>
 
             <div className="grid grid-cols-2 gap-2 mb-3">
@@ -109,6 +112,13 @@ export default function HoleCard({ hole, reading, onPlacePins }) {
             <p className="text-micro text-truarc-muted/80 leading-relaxed mb-3">
                 {summary}
             </p>
+
+            {consensus?.othersDisagree && (
+                <p className="text-micro text-amber-300/80 leading-relaxed mb-2">
+                    Other players place this basket elsewhere. This reading
+                    follows yours.
+                </p>
+            )}
 
             <div className="flex flex-col gap-1.5">
                 <Row
@@ -182,6 +192,30 @@ function NoReading({ hole, onPlacePins }) {
                 </p>
             )}
         </motion.div>
+    );
+}
+
+/**
+ * How well established this hole's pin is. Deliberately distinct wording
+ * per level: the value of confirmation is entirely in a player being
+ * able to tell a corroborated pin from one person's claim at a glance,
+ * and collapsing these into one green badge would spend that.
+ */
+const BADGE = {
+    [PIN_STATUS.VERIFIED]: ['VERIFIED', 'bg-emerald-400/10 text-emerald-300/90'],
+    [PIN_STATUS.CONFIRMED]: ['CONFIRMED', 'bg-emerald-400/10 text-emerald-300/80'],
+    [PIN_STATUS.SELF]: ['YOUR PIN', 'bg-truarc-accent/[0.14] text-truarc-accent'],
+};
+
+function PinBadge({ consensus }) {
+    const [label, tone] = BADGE[consensus?.status] ?? ['MEASURED', 'bg-emerald-400/10 text-emerald-300/90'];
+    return (
+        <span
+            title={consensus ? describeConsensus(consensus) : undefined}
+            className={`ml-auto text-micro font-mono px-2 py-0.5 rounded-full ${tone}`}
+        >
+            {label}
+        </span>
     );
 }
 

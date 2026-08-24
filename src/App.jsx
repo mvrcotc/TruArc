@@ -13,7 +13,8 @@ import { fetchCourseWeather } from './utils/weather';
 import { useAuth } from './context/AuthContext';
 import { holeEditReducer, createEditState, EDIT_ACTIONS } from './editor/holeEditState';
 import { exportHoleEdit, importHoleEdit, mergeHoleEdit } from './editor/courseEditExport';
-import { loadEdits, saveEdit } from './editor/localEdits';
+import { loadEdits, saveEdit, localObserverId } from './editor/localEdits';
+import { pinConsensus, pinIsTrusted } from './editor/pinConsensus';
 import { saveCourseEdit } from './firebase/courseEdits';
 
 import MapCanvas from './components/MapCanvas';
@@ -84,18 +85,70 @@ export default function App() {
     // card and the course list all have to move together when it does.
     const [holeEdits, setHoleEdits] = useState(() => loadEdits());
 
+    // Identity a placement is attributed to. A signed-in uid follows the
+    // player between devices; the local id is the signed-out fallback.
+    // Consensus counts OBSERVERS, so this is what stops one person's
+    // repeated placements from looking like several people agreeing.
+    const observerId = user?.uid ?? localObserverId();
+
     /**
-     * A hole as the player should see it: published coordinates with
-     * their own placement merged over the top. `mergeHoleEdit` upgrades
-     * dataQuality to 'measured' only when the edit supplies BOTH a tee
-     * and a basket, so a hole with one pin placed stays honestly
-     * estimated.
+     * Every placement known for one hole.
+     *
+     * ── SEAM: OTHER PLAYERS' OBSERVATIONS GO HERE ────────────────────
+     * Today this is only the local player, so `pinConsensus` returns
+     * SELF and the hole is trusted — which is right, because they stood
+     * at the basket. The consensus machinery is nonetheless already in
+     * the path, so adding a shared pool is a matter of concatenating
+     * rows here rather than reworking how a hole becomes trusted.
+     *
+     * Deliberately not fetched yet: a shared pool needs a collection
+     * shaped `courses/{id}/holes/{n}/observations/{observer}`, which
+     * `src/firebase/courseEdits.js` is not (it stores per-user), and
+     * this repo has no Firebase project to test a sync path against.
+     * See src/editor/pinConsensus.js's closing section.
+     */
+    const observationsFor = useCallback((courseId, holeNum) => {
+        const mine = holeEdits[`${courseId ?? ''}:${holeNum ?? ''}`];
+        if (!mine?.basket) return [];
+        return [{
+            observerId,
+            tee: mine.tee ?? null,
+            basket: mine.basket,
+            placedAt: mine.placedAt ?? Date.now(),
+        }];
+    }, [holeEdits, observerId]);
+
+    /** What the app believes about a hole's pin. */
+    const consensusFor = useCallback((hole, courseId) => (
+        pinConsensus(observationsFor(courseId ?? activeCourse?.id, hole?.num), { selfId: observerId })
+    ), [observationsFor, observerId, activeCourse?.id]);
+
+    /**
+     * A hole as the player should see it: published coordinates with the
+     * AGREED placement merged over the top.
+     *
+     * The merged position comes from consensus rather than straight from
+     * the local edit, so once a shared pool exists a hole is upgraded by
+     * corroborated agreement instead of by any one person's say-so.
+     * `mergeHoleEdit` still refuses to call it measured without BOTH a
+     * tee and a basket, and an untrusted consensus (a lone stranger, or
+     * a contested pin) falls back to the published hole.
      */
     const resolveHole = useCallback((hole, courseId) => {
         if (!hole) return hole;
-        const edit = holeEdits[`${courseId ?? activeCourse?.id ?? ''}:${hole.num ?? ''}`];
-        return edit ? mergeHoleEdit(hole, edit) : hole;
-    }, [holeEdits, activeCourse?.id]);
+        const key = `${courseId ?? activeCourse?.id ?? ''}:${hole.num ?? ''}`;
+        const mine = holeEdits[key];
+        if (!mine) return hole;
+
+        const consensus = consensusFor(hole, courseId);
+        if (!pinIsTrusted(consensus.status) || !consensus.basket) return hole;
+
+        return mergeHoleEdit(hole, {
+            ...mine,
+            tee: consensus.tee ?? mine.tee,
+            basket: consensus.basket,
+        });
+    }, [holeEdits, activeCourse?.id, consensusFor]);
 
     // Disc bag — restored from localStorage on first render. A lazy
     // initializer (not an effect) so the bag is never briefly empty
@@ -498,6 +551,7 @@ export default function App() {
                         hole={activeHole}
                         reading={holeReading}
                         onPlacePins={() => setMode('edit')}
+                        consensus={consensusFor(activeHole, activeCourse?.id)}
                     />
                 )}
 
