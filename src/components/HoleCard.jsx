@@ -24,18 +24,39 @@
  *
  * The cross-slope row is omitted entirely when it was not sampled —
  * "level" and "not measured" must never look the same.
+ *
+ * ── THE PIN HAS TO BE REAL, OR NONE OF IT IS ─────────────────────────
+ * The profile is sampled along the line from tee to basket, so the
+ * reading is only as good as the basket's position. 288 of this app's
+ * 306 holes carry `dataQuality: 'estimated'` — their baskets are
+ * DERIVED from tee + bearing + listed distance, and a 10° bearing error
+ * on a 400 ft hole puts the pin ~70 ft off. Sample a line 70 ft wide of
+ * the fairway and you can miss the ridge entirely.
+ *
+ * So an estimated hole gets no reading at all. Not a hedged one, not a
+ * greyed-out one: the numbers would be confidently wrong, which is the
+ * one failure this card exists to avoid. What it shows instead is why,
+ * because a blank space reads as a bug and the honest explanation is
+ * also the pitch for placing the pin yourself.
  */
 
 import React from 'react';
 import { motion } from 'framer-motion';
 import {
-    Mountain, Eye, EyeOff, MoveHorizontal, TrendingDown, TrendingUp, Minus,
+    Mountain, Eye, EyeOff, MoveHorizontal, TrendingDown, TrendingUp, Minus, MapPinOff,
 } from 'lucide-react';
 import { FLAT_THRESHOLD_FT } from '../holes/holeTerrain';
 
 const round5 = (v) => Math.round(v / 5) * 5;
 
+/** Only a surveyed pin earns a terrain reading. See the header. */
+export function holeSupportsReading(hole) {
+    return hole?.dataQuality === 'measured' && !!hole?.tee && !!hole?.basket;
+}
+
 export default function HoleCard({ hole, reading }) {
+    if (!hole) return null;
+    if (!holeSupportsReading(hole)) return <NoReading hole={hole} />;
     if (!reading) return null;
 
     const { elevationChangeFt: elev, visibility, slopes, summary, lengthFt } = reading;
@@ -108,6 +129,41 @@ export default function HoleCard({ hole, reading }) {
                     />
                 )}
             </div>
+        </motion.div>
+    );
+}
+
+/**
+ * Shown where a hole's pin is derived rather than surveyed. States the
+ * reason plainly — an unexplained blank reads as a broken feature, and
+ * the explanation happens to be the argument for placing the pin.
+ */
+function NoReading({ hole }) {
+    return (
+        <motion.div
+            initial={{ opacity: 0, y: -6 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.18, ease: 'easeOut' }}
+            className="glass-panel p-3.5 w-[320px]"
+        >
+            <div className="flex items-center gap-2 mb-2">
+                <MapPinOff size={14} className="text-truarc-muted/60" />
+                <span className="cad-text text-truarc-muted">
+                    {hole?.num ? `Hole ${hole.num} · Ground` : 'Ground'}
+                </span>
+                <span className="ml-auto text-micro font-mono px-2 py-0.5 rounded-full bg-white/[0.05] text-truarc-muted/70">
+                    NO PIN
+                </span>
+            </div>
+            <p className="text-micro text-truarc-muted/70 leading-relaxed">
+                This hole&apos;s basket position is estimated from its listed
+                distance and bearing, not surveyed. Reading the ground along a
+                line to a pin that might be 70&nbsp;ft off would give you
+                confident numbers about the wrong part of the fairway.
+            </p>
+            <p className="text-micro text-truarc-muted/45 leading-relaxed mt-1.5">
+                Drop the real basket in the hole editor and the reading appears.
+            </p>
         </motion.div>
     );
 }

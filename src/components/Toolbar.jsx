@@ -13,6 +13,7 @@ import {
     Zap,
 } from 'lucide-react';
 import FirebaseAuthBar from './FirebaseAuthBar';
+import { FLIGHT_SIM_ENABLED } from '../features';
 import { getEngineChoice, toggleEngineChoice } from '../physics/engineFlag';
 
 // 'edit' (course-geometry editor) and 'calibrate' (LiDAR↔satellite
@@ -23,10 +24,15 @@ import { getEngineChoice, toggleEngineChoice } from '../physics/engineFlag';
 // Both modes still exist and are reachable by their keyboard shortcuts
 // (App.jsx) for whoever needs them; see that file's comment for why
 // they weren't deleted outright.
+//
+// 'throw' is absent while FLIGHT_SIM_ENABLED is false (src/features.js):
+// simulated flight is not accurate enough to show, and a mode button is
+// a promise. Restored by flipping that flag — see it for what has to be
+// true first.
 const MODES = [
     { id: 'course', icon: Layers, label: 'Courses', shortcut: 'L' },
     { id: 'measure', icon: Ruler, label: 'Measure', shortcut: 'M' },
-    { id: 'throw', icon: Disc3, label: 'Throw', shortcut: 'T' },
+    ...(FLIGHT_SIM_ENABLED ? [{ id: 'throw', icon: Disc3, label: 'Throw', shortcut: 'T' }] : []),
 ];
 
 /**
@@ -99,7 +105,10 @@ export default function Toolbar({ mode, onModeChange, onReset }) {
             {/* Spacer */}
             <div className="flex-1" />
 
-            <EngineToggle />
+            {/* The engine A/B picks between two simulators, neither of
+                which is currently shown. Meaningless until flight
+                simulation returns. */}
+            {FLIGHT_SIM_ENABLED && <EngineToggle />}
 
             <FirebaseAuthBar />
 

@@ -1,0 +1,47 @@
+name: Product Surface
+
+# Asserts that features TruArc cannot yet stand behind stay out of the UI.
+#
+# WHY THIS IS ITS OWN WORKFLOW: the other four are scoped to a subsystem
+# (map, physics, course data, lidar). This one guards a product promise
+# rather than a module — that a number shown to a player is a number the
+# app can defend — and the code enforcing it is spread across
+# src/features.js, App.jsx and Toolbar.jsx, which no single subsystem
+# workflow owns.
+#
+# Blocking, and fast. A flag honoured in three of the four places it is
+# needed reads as handled while still stranding a player in a mode with
+# no panel, so this is a correctness gate, not a style one.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/features.js'
+      - 'src/App.jsx'
+      - 'src/components/Toolbar.jsx'
+      - 'tests/features.test.mjs'
+      - 'package.json'
+  pull_request:
+    paths:
+      - 'src/features.js'
+      - 'src/App.jsx'
+      - 'src/components/Toolbar.jsx'
+      - 'tests/features.test.mjs'
+      - 'package.json'
+  workflow_dispatch: {}
+
+jobs:
+  product-surface:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - run: npm ci
+
+      - name: Assert unbelievable features stay hidden
+        run: npm run test:features

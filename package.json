@@ -16,6 +16,7 @@
         "test:map": "node --test tests/map/*.test.mjs",
         "test:bag": "node --test tests/bag/*.test.mjs",
         "test:holes": "node --test tests/holes/*.test.mjs",
+        "test:features": "node --test tests/features.test.mjs",
         "test:utils": "node --test tests/utils/*.test.mjs",
         "test:collision": "node --test tests/physics/*.test.mjs",
         "test:data": "node --test tests/data/*.test.mjs",

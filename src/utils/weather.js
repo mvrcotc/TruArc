@@ -56,7 +56,9 @@ export function buildWeatherUrl(lat, lng) {
     const params = new URLSearchParams({
         latitude: String(lat),
         longitude: String(lng),
-        current: 'temperature_2m,wind_speed_10m,wind_direction_10m,wind_gusts_10m',
+        // weather_code and humidity are for DISPLAY only (the widget's
+        // icon and readout); nothing in the physics path reads them.
+        current: 'temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m,wind_direction_10m,wind_gusts_10m',
         wind_speed_unit: 'ms',
         temperature_unit: 'celsius',
     });
@@ -114,6 +116,11 @@ export function parseWeatherResponse(json) {
 
     return {
         temperatureC: Number.isFinite(cur.temperature_2m) ? cur.temperature_2m : null,
+        // Display-only, and null rather than a default when absent — a
+        // fabricated "clear sky" is exactly the kind of confident-wrong
+        // detail that costs trust in everything beside it.
+        humidityPct: Number.isFinite(cur.relative_humidity_2m) ? cur.relative_humidity_2m : null,
+        weatherCode: Number.isFinite(cur.weather_code) ? cur.weather_code : null,
         windSpeedMps: Math.max(0, windSpeedMps),
         windFromDeg: ((windFromDeg % 360) + 360) % 360,
         gustMps: gustMps !== null && gustMps >= 0 ? gustMps : null,

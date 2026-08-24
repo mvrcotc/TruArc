@@ -27,9 +27,10 @@ import FloatingCompass from './components/FloatingCompass';
 import WeatherPanel from './components/WeatherPanel';
 import TerrainPanel from './components/TerrainPanel';
 import CurrentWeather from './components/CurrentWeather';
-import HoleCard from './components/HoleCard';
+import HoleCard, { holeSupportsReading } from './components/HoleCard';
 import { DEFAULT_TERRAIN } from './map/terrainLayers';
 import { DEFAULT_MAP_TYPE } from './map/mapStyles';
+import { FLIGHT_SIM_ENABLED } from './features';
 
 export default function App() {
     const mapRef = useRef(null);
@@ -178,7 +179,10 @@ export default function App() {
             switch (e.key.toLowerCase()) {
                 case 'n': setMode('navigate'); break;
                 case 'm': setMode('measure'); break;
-                case 't': setMode('throw'); break;
+                // 't' is inert while flight simulation is hidden — a
+                // shortcut into an unreachable mode strands the player
+                // in a screen with no panel and no way back.
+                case 't': if (FLIGHT_SIM_ENABLED) setMode('throw'); break;
                 case 'c': setMode('calibrate'); break;
                 case 'l': setMode('course'); break;
                 case 'e': setMode('edit'); break;
@@ -256,7 +260,9 @@ export default function App() {
     const [holeReading, setHoleReading] = useState(null);
     useEffect(() => {
         setHoleReading(null);
-        if (!activeHole?.tee || !activeHole?.basket) return undefined;
+        // Only a surveyed pin gets sampled at all — on a derived basket
+        // the profile would follow the wrong line. See HoleCard's header.
+        if (!holeSupportsReading(activeHole)) return undefined;
 
         let cancelled = false;
         let tries = 0;
@@ -412,9 +418,9 @@ export default function App() {
                 above) but stay reachable by their shortcuts. */}
             <div className="absolute top-5 left-5 z-20 pointer-events-auto flex flex-col gap-2.5 max-h-[calc(100vh-36px)] overflow-y-auto custom-scrollbar pr-0.5">
                 {/* Current Weather — positioned above everything else */}
-                {activeCourse?.lat && activeCourse?.lng && (
-                    <CurrentWeather latitude={activeCourse.lat} longitude={activeCourse.lng} />
-                )}
+                {/* Same parsed observation WeatherPanel uses — one fetch,
+                    one unit path, no way for the two to disagree. */}
+                <CurrentWeather observed={observedWeather} state={weatherState} />
 
                 <FlightStats
                     mode={mode}
@@ -427,7 +433,7 @@ export default function App() {
                     wherever a hole is selected and the reading resolved;
                     it answers "how does this hole play" rather than
                     anything about a particular throw. */}
-                {activeHole && holeReading && (
+                {activeHole && (
                     <HoleCard hole={activeHole} reading={holeReading} />
                 )}
 
@@ -517,7 +523,7 @@ export default function App() {
                 unmounting on every mode toggle would reset the search
                 input and lose bag-search-portal position state. */}
             <div className="absolute top-[104px] right-5 z-20 pointer-events-auto">
-                <div style={{ display: mode === 'throw' ? 'block' : 'none' }}>
+                <div style={{ display: FLIGHT_SIM_ENABLED && mode === 'throw' ? 'block' : 'none' }}>
                     <ThrowPanel
                         selectedDisc={selectedDisc}
                         onSelectDisc={setSelectedDisc}
