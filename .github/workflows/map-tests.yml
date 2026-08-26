@@ -1,0 +1,72 @@
+name: Map & Tree Rendering
+
+# Tests for src/map/ (Section 3, docs/ACCURACY_ROADMAP.md) — the Mapbox
+# <-> Three.js coordinate sync, crown/trunk/billboard geometry math, the
+# TreeLayer/PointCloudLayer scene-construction pipeline, the point-cloud
+# binary decoder, and the calibration-offset helpers those layers use.
+#
+# Blocking. These are exact-math and structural tests, not judgment
+# calls — a failure here means a sign, scale, axis, or ground-elevation
+# convention has broken (this suite already caught one real bug of
+# exactly that kind: crowns/billboards rendering pinned to sea-level-
+# relative zero instead of the tree's actual ground altitude). The
+# coordinate primitives are verified against mapbox-gl's own
+# MercatorCoordinate and the point-cloud decoder against real
+# Python-packed bytes — both run in Node with no GL context and no
+# access token.
+#
+# NOT covered: whether any of this actually draws correctly on screen.
+# That needs a Mapbox token and a browser — see the verification notes
+# at the top of TreeLayer.js and PointCloudLayer.js.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/map/**'
+      - 'src/utils/calibrationOffset.js'
+      - 'src/components/MapCanvas.jsx'
+      - 'src/components/CalibrationPanel.jsx'
+      - 'src/holes/**'
+      - 'tests/map/**'
+      - 'tests/utils/**'
+      - 'tests/holes/**'
+      - 'package.json'
+  pull_request:
+    paths:
+      - 'src/map/**'
+      - 'src/utils/calibrationOffset.js'
+      - 'src/components/MapCanvas.jsx'
+      - 'src/components/CalibrationPanel.jsx'
+      - 'src/holes/**'
+      - 'tests/map/**'
+      - 'tests/utils/**'
+      - 'tests/holes/**'
+      - 'package.json'
+  workflow_dispatch: {}
+
+jobs:
+  map-and-trees:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - run: npm ci
+
+      - name: Run map/coordinate-sync/tree-geometry tests
+        run: npm run test:map
+
+      - name: Run calibration-offset helper tests
+        run: npm run test:utils
+
+      # Terrain reading (src/holes). Pure geometry over survey elevation
+      # — no calibration, no simulation — so unlike the flight suites
+      # these are expected to pass outright and block when they don't.
+      - name: Run hole terrain tests
+        run: npm run test:holes
+
+      - name: Build (validates TreeLayer/PointCloudLayer bundling, e.g. the BufferGeometryUtils import path)
+        run: npm run build

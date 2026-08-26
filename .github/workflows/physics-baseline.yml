@@ -1,0 +1,85 @@
+name: Flight Physics Ground Truth
+
+# Runs the Section 0 regression harness (docs/ACCURACY_ROADMAP.md) against
+# the flight simulator whenever physics-relevant code or the envelope
+# targets themselves change.
+#
+# NON-BLOCKING BY DESIGN: as of the pre–Section 1 engine, this suite is
+# a documented-red baseline (see docs/ACCURACY_ROADMAP.md §0/§1) — the
+# current turn/fade model cannot pass most envelopes by construction, and
+# that gap is exactly what Section 1 exists to close. `continue-on-error`
+# keeps this from blocking unrelated PRs while the pass/fail counts stay
+# visible in every run's logs, so regressions (or Section 1's progress)
+# are still tracked. Flip `continue-on-error` to `false` once Section 1
+# lands and the suite is expected to pass in full.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/utils/flightPhysics*.js'
+      - 'src/physics/**'
+      - 'tests/**'
+      - 'tools/calibrate.mjs'
+      - 'package.json'
+  pull_request:
+    paths:
+      - 'src/utils/flightPhysics*.js'
+      - 'src/physics/**'
+      - 'tests/**'
+      - 'tools/calibrate.mjs'
+      - 'package.json'
+  workflow_dispatch: {}
+
+jobs:
+  ground-truth:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - run: npm ci
+
+      # Engine-level invariants (frames, signs, timestep convergence,
+      # handedness, energy). These are NOT calibration-dependent and must
+      # always pass — a failure here means the physics itself broke.
+      - name: Run 6-DOF engine invariants
+        run: npm run test:physics-invariants
+
+      # Integration layer (terrain profile sampling/lookup, the shared
+      # thrower-scaling formula). Also blocking — these are plumbing bugs,
+      # not calibration quality.
+      - name: Run physics integration tests
+        run: npm run test:physics-integration
+
+      # Section 4 — voxel grid decoding/georeferencing and the
+      # Amanatides-Woo collision traversal. Exact math against a real
+      # Python-packed fixture, not calibration judgment — blocking, same
+      # as the invariants/integration suites above.
+      #
+      # Also covers src/physics/discProfile.js (the disc reference-flight
+      # panel), which globs into the same tests/physics/ directory. Its
+      # assertions are structural — lateral sign convention, stability
+      # buckets, chart projection bounds — and hold regardless of where
+      # calibration lands, so they belong here rather than in the
+      # known-red envelope suite below.
+      - name: Run collision, voxel-grid & disc-profile tests
+        run: npm run test:collision
+
+      # Measured-throw loader. Blocking, and NOT calibration-dependent:
+      # these assert validation, tolerance construction and precedence,
+      # none of which move when the mapping does. A row that loads when
+      # it should have been rejected outranks an expert target and feeds
+      # all 19 calibration parameters, so this is a data-integrity gate
+      # rather than a quality one.
+      - name: Run field-data loader tests
+        run: npm run test:field-data
+
+      - name: Run flight envelope + comparative assertions
+        continue-on-error: true
+        run: npm run test:physics
+
+      - name: Build (validates worker bundling)
+        run: npm run build

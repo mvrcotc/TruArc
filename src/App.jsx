@@ -5,32 +5,74 @@
  * ╚══════════════════════════════════════════════════════════════════╝
  */
 
-import React, { useState, useRef, useCallback, useEffect } from 'react';
+import React, { useState, useRef, useReducer, useCallback, useEffect } from 'react';
 import { getCalibrationOffset } from './utils/calibrationOffset';
+import { loadBag, saveBag, loadSelectedDisc, saveSelectedDisc } from './utils/discBag';
+import { DEFAULT_THROW_SETTINGS } from './physics/throwerProfile';
+import { fetchCourseWeather } from './utils/weather';
+import { useAuth } from './context/AuthContext';
+import { holeEditReducer, createEditState, EDIT_ACTIONS } from './editor/holeEditState';
+import { exportHoleEdit, importHoleEdit, mergeHoleEdit } from './editor/courseEditExport';
+import { loadEdits, saveEdit, localObserverId } from './editor/localEdits';
+import { pinConsensus, pinIsTrusted } from './editor/pinConsensus';
+import { saveCourseEdit } from './firebase/courseEdits';
 
 import MapCanvas from './components/MapCanvas';
 import Toolbar from './components/Toolbar';
-import DiscSelector from './components/DiscSelector';
+import ThrowPanel from './components/ThrowPanel';
 import CalibrationPanel from './components/CalibrationPanel';
 import CourseManager from './components/CourseManager';
+import CourseEditorPanel from './components/CourseEditorPanel';
 import FlightStats from './components/FlightStats';
 import CourseSearch from './components/CourseSearch';
 import FloatingCompass from './components/FloatingCompass';
+import WeatherPanel from './components/WeatherPanel';
+import TerrainPanel from './components/TerrainPanel';
+import CurrentWeather from './components/CurrentWeather';
+import HoleCard, { holeSupportsReading } from './components/HoleCard';
+import { DEFAULT_TERRAIN } from './map/terrainLayers';
+import { DEFAULT_MAP_TYPE } from './map/mapStyles';
+import { FLIGHT_SIM_ENABLED } from './features';
 
 export default function App() {
     const mapRef = useRef(null);
 
+    const { user } = useAuth();
+
     // ─── STATE ──────────────────────────────────────────────────
-    const [mode, setMode] = useState('navigate'); // navigate | measure | throw | calibrate | course
-    const [selectedDisc, setSelectedDisc] = useState(null);
+    const [mode, setMode] = useState('navigate'); // navigate | measure | throw | calibrate | course | edit
     const [viewState, setViewState] = useState({ bearing: 0, pitch: 60 });
-    const [throwSettings, setThrowSettings] = useState({
-        power: 80,
-        aimAngle: 0,
-        releaseAngle: 0,
-        noseAngle: 2,
-    });
+    // Shared with ThrowPanel's "Reset" button via DEFAULT_THROW_SETTINGS,
+    // so Reset provably returns the player to where they started rather
+    // than to a second, drifting copy of "default". Spread because the
+    // exported constant is frozen and this is mutable state.
+    const [throwSettings, setThrowSettings] = useState({ ...DEFAULT_THROW_SETTINGS });
+    // `direction` is the METEOROLOGICAL bearing the wind blows FROM
+    // (0 = from the north), matching what a weather service reports and
+    // what WeatherPanel's rose shows. It is rotated into each engine's
+    // throw-relative frame once, at the engine boundary — see
+    // throwerProfile.buildWindSpec.
+    //
+    // No longer player-editable: the sliders that set it only ever fed
+    // the flight simulator, which is hidden (src/features.js), so they
+    // were a live-looking control that moved nothing. It now simply
+    // MIRRORS the observation, which is also the right default for the
+    // day the simulator returns — the earlier reasoning against
+    // auto-applying it ("silently moving the sliders under the player")
+    // only held while there were sliders to move.
     const [wind, setWind] = useState({ speed: 0, direction: 0 });
+    const [observedWeather, setObservedWeather] = useState(null);
+    const [weatherState, setWeatherState] = useState('idle'); // idle|loading|ok|unavailable
+    const [weatherExpanded, setWeatherExpanded] = useState(false);
+
+    // Relief shading / contours. Terrain legibility is a property of the
+    // PLACE, like wind — not of a throw — so it lives in the left rail and
+    // persists across mode and course changes. Note there is no scale
+    // setting here: the ground always renders true, see terrainLayers.js.
+    const [terrain, setTerrain] = useState(DEFAULT_TERRAIN);
+    // Base map style. Satellite by default — see map/mapStyles.js.
+    const [mapType, setMapType] = useState(DEFAULT_MAP_TYPE);
+    const [terrainExpanded, setTerrainExpanded] = useState(false);
     const [measurement, setMeasurement] = useState(null);
     const [flightData, setFlightData] = useState(null);
     const [searchOpen, setSearchOpen] = useState(false);
@@ -39,14 +81,216 @@ export default function App() {
     const [activeCourse, setActiveCourse] = useState(null);
     const [activeHole, setActiveHole] = useState(null);
 
-    // Disc bag
-    const [myBag, setMyBag] = useState([]);
+    // ─── PLACED PINS ──────────────────────────────────────────────
+    // Hole edits the player has saved, keyed `courseId:holeNum`. Read
+    // ONCE via a lazy initializer, for the same reason the disc bag is:
+    // an effect would leave every hole briefly un-merged on first paint,
+    // which would flash the "no pin" card at someone who has already
+    // placed one.
+    //
+    // Held in state rather than read per render because placing a
+    // basket is what turns a hole `measured`, and the map, the hole
+    // card and the course list all have to move together when it does.
+    const [holeEdits, setHoleEdits] = useState(() => loadEdits());
+
+    // Identity a placement is attributed to. A signed-in uid follows the
+    // player between devices; the local id is the signed-out fallback.
+    // Consensus counts OBSERVERS, so this is what stops one person's
+    // repeated placements from looking like several people agreeing.
+    const observerId = user?.uid ?? localObserverId();
+
+    /**
+     * Every placement known for one hole.
+     *
+     * ── SEAM: OTHER PLAYERS' OBSERVATIONS GO HERE ────────────────────
+     * Today this is only the local player, so `pinConsensus` returns
+     * SELF and the hole is trusted — which is right, because they stood
+     * at the basket. The consensus machinery is nonetheless already in
+     * the path, so adding a shared pool is a matter of concatenating
+     * rows here rather than reworking how a hole becomes trusted.
+     *
+     * Deliberately not fetched yet: a shared pool needs a collection
+     * shaped `courses/{id}/holes/{n}/observations/{observer}`, which
+     * `src/firebase/courseEdits.js` is not (it stores per-user), and
+     * this repo has no Firebase project to test a sync path against.
+     * See src/editor/pinConsensus.js's closing section.
+     */
+    const observationsFor = useCallback((courseId, holeNum) => {
+        const mine = holeEdits[`${courseId ?? ''}:${holeNum ?? ''}`];
+        if (!mine?.basket) return [];
+        return [{
+            observerId,
+            tee: mine.tee ?? null,
+            basket: mine.basket,
+            placedAt: mine.placedAt ?? Date.now(),
+        }];
+    }, [holeEdits, observerId]);
+
+    /** What the app believes about a hole's pin. */
+    const consensusFor = useCallback((hole, courseId) => (
+        pinConsensus(observationsFor(courseId ?? activeCourse?.id, hole?.num), { selfId: observerId })
+    ), [observationsFor, observerId, activeCourse?.id]);
+
+    /**
+     * A hole as the player should see it: published coordinates with the
+     * AGREED placement merged over the top.
+     *
+     * The merged position comes from consensus rather than straight from
+     * the local edit, so once a shared pool exists a hole is upgraded by
+     * corroborated agreement instead of by any one person's say-so.
+     * `mergeHoleEdit` still refuses to call it measured without BOTH a
+     * tee and a basket, and an untrusted consensus (a lone stranger, or
+     * a contested pin) falls back to the published hole.
+     */
+    const resolveHole = useCallback((hole, courseId) => {
+        if (!hole) return hole;
+        const key = `${courseId ?? activeCourse?.id ?? ''}:${hole.num ?? ''}`;
+        const mine = holeEdits[key];
+        if (!mine) return hole;
+
+        const consensus = consensusFor(hole, courseId);
+        if (!pinIsTrusted(consensus.status) || !consensus.basket) return hole;
+
+        return mergeHoleEdit(hole, {
+            ...mine,
+            tee: consensus.tee ?? mine.tee,
+            basket: consensus.basket,
+        });
+    }, [holeEdits, activeCourse?.id, consensusFor]);
+
+    // Disc bag — restored from localStorage on first render. A lazy
+    // initializer (not an effect) so the bag is never briefly empty
+    // before being repopulated, and storage is read exactly ONCE: the
+    // selection has to resolve against the same array the bag holds, not
+    // a second independently-loaded copy. See src/utils/discBag.js.
+    const [restored] = useState(() => {
+        const bag = loadBag();
+        return { bag, selected: loadSelectedDisc(bag) };
+    });
+    const [myBag, setMyBag] = useState(restored.bag);
+    const [selectedDisc, setSelectedDisc] = useState(restored.selected);
+
+    // Persist on change. Both store identity only, so a later correction
+    // to a disc's published flight numbers reaches every saved bag.
+    useEffect(() => { saveBag(myBag); }, [myBag]);
+    useEffect(() => { saveSelectedDisc(selectedDisc); }, [selectedDisc]);
 
     // LiDAR overlay
     const [lidarEnabled, setLidarEnabled] = useState(false);
+    const [trueViewEnabled, setTrueViewEnabled] = useState(false);
     const [calibrationOffset, setCalibrationOffset] = useState({ dLng: 0, dLat: 0, dElev: 0 });
 
+    // ─── COURSE EDITOR (Section 5) ────────────────────────────────
+    // The edit state's identity is tied to (courseId, holeNum) — a new
+    // hole means a new reducer state, not a mutation of the last one, so
+    // switching holes never leaks one hole's in-progress edit into
+    // another's.
+    const [editState, editDispatch] = useReducer(
+        holeEditReducer,
+        createEditState(activeCourse?.id ?? null, activeHole?.num ?? null),
+    );
+    const [editTool, setEditTool] = useState('tee');
+    const [editSaving, setEditSaving] = useState(false);
+    const [editSaveError, setEditSaveError] = useState(null);
+    const [editSavedAt, setEditSavedAt] = useState(null);
+
+    // Reset the edit ONLY when the (courseId, holeNum) pair actually
+    // changes — not on every entry into 'edit' mode. Without the key
+    // check, toggling away to 'course' mode to pick a different hole
+    // and back to 'edit' for the SAME hole would silently wipe whatever
+    // was placed but not yet saved.
+    const editKeyRef = useRef(null);
+    useEffect(() => {
+        if (mode !== 'edit') return;
+        const key = `${activeCourse?.id ?? ''}:${activeHole?.num ?? ''}`;
+        if (editKeyRef.current === key) return;
+        editKeyRef.current = key;
+        // Seed from any saved placement so re-opening a hole you have
+        // already pinned starts from those pins rather than a blank
+        // slate that invites placing them a second time.
+        const saved = holeEdits[`${activeCourse?.id ?? ''}:${activeHole?.num ?? ''}`];
+        editDispatch({
+            type: EDIT_ACTIONS.LOAD,
+            edit: createEditState(activeCourse?.id ?? null, activeHole?.num ?? null, saved ?? {}),
+        });
+        setEditSaveError(null);
+        setEditSavedAt(null);
+    }, [activeCourse?.id, activeHole?.num, mode, holeEdits]);
+
+    /**
+     * Save a placement. Local storage FIRST and unconditionally — a
+     * placed basket is what turns a hole `measured`, and making that
+     * depend on being signed in would put an account wall in front of
+     * the app's most valuable action. Firestore is a sync on top for
+     * anyone who is signed in, and its failure must not lose the pin
+     * that is already safely on this device.
+     */
+    const handleEditSave = useCallback(async () => {
+        const exported = exportHoleEdit(editState);
+        const courseId = editState.courseId ?? activeCourse?.id ?? null;
+        const holeNum = editState.holeNum ?? activeHole?.num ?? null;
+
+        setEditSaving(true);
+        setEditSaveError(null);
+
+        const storedLocally = saveEdit(courseId, holeNum, exported);
+        if (storedLocally) {
+            // Re-merge immediately: the map, the hole card and the course
+            // list should all reflect the new pin without a reload.
+            setHoleEdits((prev) => ({ ...prev, [`${courseId}:${holeNum}`]: exported }));
+            setEditSavedAt(Date.now());
+        } else {
+            setEditSaveError('Could not save to this device (private browsing?)');
+        }
+
+        if (user) {
+            try {
+                await saveCourseEdit(user.uid, exported);
+            } catch (err) {
+                // Named as a sync failure, not a save failure — the pin
+                // is on the device either way and saying otherwise would
+                // invite the player to place it again.
+                setEditSaveError(`Saved on this device; cloud sync failed (${err?.message || 'unknown'})`);
+            }
+        }
+
+        setEditSaving(false);
+    }, [user, editState, activeCourse?.id, activeHole?.num]);
+
+    const handleEditExport = useCallback(() => {
+        const json = JSON.stringify(exportHoleEdit(editState), null, 2);
+        const blob = new Blob([json], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${editState.courseId || 'course'}_hole${editState.holeNum ?? ''}_edit.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+    }, [editState]);
+
+    const handleEditImport = useCallback(async (file) => {
+        try {
+            const text = await file.text();
+            const imported = importHoleEdit(JSON.parse(text));
+            editDispatch({ type: EDIT_ACTIONS.LOAD, edit: imported });
+            setEditSaveError(null);
+        } catch (err) {
+            setEditSaveError(`Import failed: ${err?.message || err}`);
+        }
+    }, []);
+
     // ─── KEYBOARD SHORTCUTS ─────────────────────────────────────
+    // 'edit' and 'calibrate' are deliberately NOT buttons in Toolbar.jsx
+    // — they're course-setup tooling (LiDAR↔satellite alignment, placing
+    // tees/baskets/OB), not something a player throwing a round should
+    // see as an option. A published course is expected to already be
+    // calibrated. The modes themselves, and their shortcuts here, are
+    // left intact rather than deleted: someone still has to be able to
+    // reach them to calibrate/edit a course in the first place (e.g. the
+    // Section 5 data-entry pass), and there's no admin-role system in
+    // this app to gate a visible button behind instead. So: reachable by
+    // keyboard for whoever already knows to look for it, invisible to
+    // everyone else.
     useEffect(() => {
         const handleKey = (e) => {
             // Don't intercept when typing in inputs
@@ -55,9 +299,13 @@ export default function App() {
             switch (e.key.toLowerCase()) {
                 case 'n': setMode('navigate'); break;
                 case 'm': setMode('measure'); break;
-                case 't': setMode('throw'); break;
+                // 't' is inert while flight simulation is hidden — a
+                // shortcut into an unreachable mode strands the player
+                // in a screen with no panel and no way back.
+                case 't': if (FLIGHT_SIM_ENABLED) setMode('throw'); break;
                 case 'c': setMode('calibrate'); break;
                 case 'l': setMode('course'); break;
+                case 'e': setMode('edit'); break;
                 case '/':
                 case 'k':
                     if (e.metaKey || e.ctrlKey) {
@@ -119,10 +367,38 @@ export default function App() {
     }, []);
 
     const handleSelectHole = useCallback((hole, course) => {
-        setActiveHole(hole);
+        const resolved = resolveHole(hole, (course ?? activeCourse)?.id);
+        setActiveHole(resolved);
         if (course) setActiveCourse(course);
-        mapRef.current?.highlightHole(hole);
-    }, []);
+        mapRef.current?.highlightHole(resolved);
+    }, [resolveHole, activeCourse]);
+
+    // ─── HOLE TERRAIN READING ─────────────────────────────────────
+    // Terrain tiles stream in after the camera moves, so the first read
+    // for a hole usually comes back null. Poll briefly rather than
+    // rendering a card of zeros — a flat-looking hole and an unloaded
+    // one are indistinguishable to the player, and only one is true.
+    const [holeReading, setHoleReading] = useState(null);
+    useEffect(() => {
+        setHoleReading(null);
+        // Only a surveyed pin gets sampled at all — on a derived basket
+        // the profile would follow the wrong line. See HoleCard's header.
+        if (!holeSupportsReading(activeHole)) return undefined;
+
+        let cancelled = false;
+        let tries = 0;
+        const attempt = () => {
+            if (cancelled) return;
+            const reading = mapRef.current?.readHoleTerrain?.(activeHole);
+            if (reading) { setHoleReading(reading); return; }
+            // ~6 s of patience, then give up silently. A missing card is
+            // honest; a fabricated one is not.
+            if (++tries < 20) timer = setTimeout(attempt, 300);
+        };
+        let timer = setTimeout(attempt, 250);
+
+        return () => { cancelled = true; clearTimeout(timer); };
+    }, [activeHole]);
 
     const handleFlyTo = useCallback((lng, lat, zoom) => {
         mapRef.current?.flyTo(lng, lat, zoom);
@@ -156,6 +432,72 @@ export default function App() {
         setViewState({ bearing, pitch });
     }, []);
 
+    // ─── OBSERVED WEATHER ─────────────────────────────────────────
+    // Fetched per course, not per hole: a course is far smaller than
+    // the weather model's grid cell, so re-fetching per hole would burn
+    // requests for an identical answer.
+    //
+    // The observation is NEVER auto-applied to `wind`. Silently moving
+    // the sliders under the player would make an unexplained change to
+    // every simulated flight; WeatherPanel shows the reading and offers
+    // a one-click "Use" instead. A failed fetch leaves wind untouched
+    // and reports 'unavailable' — "no observation" and "dead calm" are
+    // different claims.
+    const weatherRunRef = useRef(0);
+    const loadWeather = useCallback(async (course, signal) => {
+        if (!course?.center) {
+            setObservedWeather(null);
+            setWeatherState('idle');
+            return;
+        }
+        const run = ++weatherRunRef.current;
+        setWeatherState('loading');
+        try {
+            const w = await fetchCourseWeather(course.center.lat, course.center.lng, { signal });
+            if (run !== weatherRunRef.current) return; // a newer course won
+            setObservedWeather(w);
+            setWeatherState(w ? 'ok' : 'unavailable');
+        } catch (err) {
+            if (err?.name === 'AbortError' || run !== weatherRunRef.current) return;
+            setObservedWeather(null);
+            setWeatherState('unavailable');
+        }
+    }, []);
+
+    useEffect(() => {
+        const ac = new AbortController();
+        loadWeather(activeCourse, ac.signal);
+        return () => ac.abort();
+    }, [activeCourse?.id, loadWeather]);
+
+    // Keep the engine-facing wind aligned with what is actually blowing.
+    // Costs nothing while the simulator is hidden and means it starts
+    // from reality rather than dead calm when it comes back.
+    useEffect(() => {
+        if (!observedWeather) return;
+        setWind({
+            speed: observedWeather.windSpeedMps,
+            direction: observedWeather.windFromDeg,
+        });
+    }, [observedWeather]);
+
+    const handleRefreshWeather = useCallback(() => {
+        loadWeather(activeCourse);
+    }, [loadWeather, activeCourse]);
+
+    // Keep the reading current while a course is open.
+    //
+    // "Live" here means the freshest thing the source has, not
+    // sub-minute truth: Open-Meteo publishes current conditions hourly,
+    // so polling faster would spend requests re-fetching an identical
+    // answer. Ten minutes keeps the wind streaks from going stale across
+    // a round without pretending to a resolution the data lacks.
+    useEffect(() => {
+        if (!activeCourse?.center) return undefined;
+        const id = setInterval(() => loadWeather(activeCourse), 10 * 60 * 1000);
+        return () => clearInterval(id);
+    }, [activeCourse, loadWeather]);
+
     // ─── RENDER ─────────────────────────────────────────────────
     return (
         <div className="relative w-screen h-screen bg-truarc-bg overflow-hidden">
@@ -172,14 +514,22 @@ export default function App() {
                 activeCourse={activeCourse}
                 activeHole={activeHole}
                 lidarEnabled={lidarEnabled}
+                trueViewEnabled={trueViewEnabled}
                 calibrationOffset={calibrationOffset}
+                editState={editState}
+                editTool={editTool}
+                editDispatch={editDispatch}
+                terrain={terrain}
+                mapType={mapType}
+                windEnabled={terrain?.wind ?? true}
+                observedWind={observedWeather}
             />
 
             {/* Tactical Grid Overlay */}
             <div className="tactical-grid absolute inset-0 z-10" />
 
             {/* Top Toolbar */}
-            <div className="absolute top-4 left-1/2 -translate-x-1/2 z-30">
+            <div className="absolute top-5 left-1/2 -translate-x-1/2 z-30">
                 <Toolbar
                     mode={mode}
                     onModeChange={handleModeChange}
@@ -188,28 +538,93 @@ export default function App() {
                 />
             </div>
 
-            {/* Left Panel: Always mount all panels (use visibility) so DiscSelector never unmounts - fixes search bug */}
-            <div className="absolute top-24 left-4 z-20 pointer-events-auto">
-                <div style={{ display: mode === 'throw' ? 'block' : 'none' }}>
-                    <DiscSelector
-                        selectedDisc={selectedDisc}
-                        onSelectDisc={setSelectedDisc}
-                        myBag={myBag}
-                        onBagChange={setMyBag}
-                        throwSettings={throwSettings}
-                        onUpdateThrow={setThrowSettings}
-                        wind={wind}
-                        onUpdateWind={setWind}
+            {/* Left Panel: course browsing, the active hole's detail, and
+                point-to-point measurements — "where am I / what am I
+                looking at" context, as opposed to the right panel's
+                "what am I about to throw" workflow. FlightStats renders
+                first (top) so the active hole's tee/basket/bearing detail
+                sits above the browsable course/hole list beneath it —
+                current status, then drill-down. It has no mode gate of
+                its own here because it already no-ops for any mode that
+                isn't 'measure' or 'course' internally.
+                Calibrate/Edit are always mounted (display:none when
+                inactive) for the same reason DiscSelector used to be:
+                mode toggling must not reset their in-progress state. They
+                have no Toolbar button (see the keyboard-shortcut comment
+                above) but stay reachable by their shortcuts. */}
+            <div className="absolute top-5 left-5 z-20 pointer-events-auto flex flex-col gap-2.5 max-h-[calc(100vh-36px)] w-[328px]">
+                {/* ── PINNED ──────────────────────────────────────────
+                    What the ground does — measured, not simulated.
+
+                    OUTSIDE the scroll region on purpose. It used to sit
+                    inside it, above the course browser, which meant that
+                    selecting a hole (scrolling down to the hole list)
+                    pushed this card off the top of the screen. The one
+                    panel that justifies the app was invisible at the
+                    exact moment it became relevant, and the app read as
+                    a pretty map with a list of distances.
+
+                    The browser is navigation; this is the answer. The
+                    answer does not compete for scroll with the
+                    navigation. */}
+                {activeHole && (
+                    <HoleCard
+                        hole={activeHole}
+                        reading={holeReading}
+                        onPlacePins={() => setMode('edit')}
+                        consensus={consensusFor(activeHole, activeCourse?.id)}
                     />
-                </div>
-                <div style={{ display: mode === 'calibrate' ? 'block' : 'none' }}>
-                    <CalibrationPanel
-                        courseId={activeCourse?.id || 'default'}
-                        onOffsetChange={handleCalibrationOffset}
-                        lidarEnabled={lidarEnabled}
-                        onLidarToggle={setLidarEnabled}
+                )}
+
+                <div className="flex flex-col gap-2.5 min-h-0 overflow-y-auto custom-scrollbar pr-0.5">
+                {/* Same parsed observation WeatherPanel uses — one fetch,
+                    one unit path, no way for the two to disagree. */}
+                <CurrentWeather observed={observedWeather} state={weatherState} />
+
+                <FlightStats
+                    mode={mode}
+                    measurement={measurement}
+                    activeHole={activeHole}
+                    activeCourse={activeCourse}
+                />
+
+                {/* Wind lives on this side because it belongs to the
+                    PLACE, not to the disc in your hand. Shown in throw
+                    and course modes — the two where it's actionable —
+                    and collapsed by default so it summarises in one line
+                    without crowding the course browser. */}
+                {(mode === 'throw' || mode === 'course') && (
+                    <WeatherPanel
+                        observed={observedWeather}
+                        observedState={weatherState}
+                        onRefresh={handleRefreshWeather}
+                        holeBearingDeg={activeHole?.bearing}
+                        expanded={weatherExpanded}
+                        onToggle={() => setWeatherExpanded((v) => !v)}
                     />
-                </div>
+                )}
+
+                {/* Terrain legibility sits with Wind for the same reason —
+                    both describe the ground you're throwing over rather
+                    than the throw.
+                    Unlike Wind it is shown in EVERY player-facing mode,
+                    including 'navigate' (the default, and the one where
+                    you are literally just looking at the ground) and
+                    'measure' (where reading the slope is most of what a
+                    distance between two points means). Only the two
+                    course-admin modes are excluded — they own the whole
+                    rail with their own dense panels. */}
+                {mode !== 'calibrate' && mode !== 'edit' && (
+                    <TerrainPanel
+                        terrain={terrain}
+                        onUpdate={setTerrain}
+                        mapType={mapType}
+                        onMapTypeChange={setMapType}
+                        expanded={terrainExpanded}
+                        onToggle={() => setTerrainExpanded((v) => !v)}
+                    />
+                )}
+
                 <div style={{ display: mode === 'course' ? 'block' : 'none' }}>
                     <CourseManager
                         onSelectCourse={handleSelectCourse}
@@ -220,22 +635,62 @@ export default function App() {
                         activeHoleNum={activeHole?.num}
                     />
                 </div>
+                <div style={{ display: mode === 'calibrate' ? 'block' : 'none' }}>
+                    <CalibrationPanel
+                        courseId={activeCourse?.id || 'default'}
+                        onOffsetChange={handleCalibrationOffset}
+                        lidarEnabled={lidarEnabled}
+                        onLidarToggle={setLidarEnabled}
+                        trueViewEnabled={trueViewEnabled}
+                        onTrueViewToggle={setTrueViewEnabled}
+                    />
+                </div>
+                <div style={{ display: mode === 'edit' ? 'block' : 'none' }}>
+                    <CourseEditorPanel
+                        hole={activeHole}
+                        editState={mode === 'edit' ? editState : null}
+                        dispatch={editDispatch}
+                        activeTool={editTool}
+                        onToolChange={setEditTool}
+                        onSave={handleEditSave}
+                        saving={editSaving}
+                        saveError={editSaveError}
+                        savedAt={editSavedAt}
+                        signedIn={!!user}
+                        onExport={handleEditExport}
+                        onImport={handleEditImport}
+                    />
+                </div>
+                </div>
             </div>
 
-            {/* Top Right: Stats (measure/flight/course) - out of direct view */}
-            <div className="absolute top-16 right-4 z-20 flex flex-col gap-2">
-                <FlightStats
-                    mode={mode}
-                    flightData={flightData}
-                    measurement={measurement}
-                    activeHole={activeHole}
-                    activeCourse={activeCourse}
-                    onFlyToLanding={handleFlyToLanding}
-                />
+            {/* Right Panel: ThrowPanel is the ONE unified bar for the
+                throw workflow — bag, throw settings, wind, this throw's
+                results, and the selected disc's reference profile all
+                live inside it now (see ThrowPanel.jsx). Always mounted
+                (display:none when inactive), same reason as before:
+                unmounting on every mode toggle would reset the search
+                input and lose bag-search-portal position state. */}
+            <div className="absolute top-[104px] right-5 z-20 pointer-events-auto">
+                <div style={{ display: FLIGHT_SIM_ENABLED && mode === 'throw' ? 'block' : 'none' }}>
+                    <ThrowPanel
+                        selectedDisc={selectedDisc}
+                        onSelectDisc={setSelectedDisc}
+                        myBag={myBag}
+                        onBagChange={setMyBag}
+                        throwSettings={throwSettings}
+                        onUpdateThrow={setThrowSettings}
+                        wind={wind}
+                        onUpdateWind={setWind}
+                        flightData={flightData}
+                        onFlyToLanding={handleFlyToLanding}
+                        throwBearingDeg={activeHole?.bearing}
+                    />
+                </div>
             </div>
 
             {/* Floating Compass (Top Right, above stats) */}
-            <div className="absolute top-4 right-4 z-30 pointer-events-none">
+            <div className="absolute top-5 right-5 z-30 pointer-events-none">
                 <FloatingCompass bearing={viewState.bearing} pitch={viewState.pitch} />
             </div>
 
@@ -261,21 +716,23 @@ function CornerIndicators({ mode }) {
         throw: 'THR',
         calibrate: 'CAL',
         course: 'CRS',
+        edit: 'EDT',
     };
 
     const modeColors = {
-        navigate: '#8892b0',
-        measure: '#00e5ff',
-        throw: '#ff6b35',
-        calibrate: '#00ff88',
-        course: '#aa66ff',
+        navigate: '#98a1b5',
+        measure: '#4cb8ff',
+        throw: '#f5a65b',
+        calibrate: '#34d399',
+        course: '#a78bfa',
+        edit: '#ff6b7a',
     };
 
     return (
         <>
             {/* Top-Left Corner */}
-            <div className="absolute top-4 left-4 z-10 pointer-events-none">
-                <div className="w-8 h-8 border-l-2 border-t-2 rounded-tl-sm" style={{ borderColor: modeColors[mode] + '30' }} />
+            <div className="absolute top-5 left-5 z-10 pointer-events-none">
+                <div className="w-7 h-7 border-l border-t rounded-tl-md" style={{ borderColor: modeColors[mode] + '2e' }} />
             </div>
 
             {/* Top-Right Corner - Replaced by Compass, but keeping border style for consistency if desired. 
@@ -283,26 +740,21 @@ function CornerIndicators({ mode }) {
                 The compass is absolute top-4 right-4. The corner indicator is also top-4 right-4.
                 I will move the mode label down slightly.
             */}
-            <div className="absolute top-16 right-4 z-10 pointer-events-none flex flex-col items-end gap-1">
-                <div
-                    className="font-mono text-[10px] tracking-[0.3em] mr-1 opacity-50"
-                    style={{ color: modeColors[mode] }}
-                >
-                    {modeLabels[mode]}
-                </div>
-            </div>
 
-            {/* Bottom-Left Corner */}
-            <div className="absolute bottom-4 left-4 z-10 pointer-events-none">
-                <div className="w-8 h-8 border-l-2 border-b-2 rounded-bl-sm" style={{ borderColor: modeColors[mode] + '30' }} />
-                <div className="font-mono text-[9px] text-truarc-muted/40 mt-1">
-                    EPSG:4326
-                </div>
-            </div>
 
-            {/* Bottom-Right Corner */}
-            <div className="absolute bottom-4 right-4 z-10 pointer-events-none">
-                <div className="w-8 h-8 border-r-2 border-b-2 rounded-br-sm" style={{ borderColor: modeColors[mode] + '30' }} />
+            {/* Bottom-Left Corner. No bottom-RIGHT bracket: Mapbox's
+                attribution bar lives there and the two collided. */}
+            <div className="absolute bottom-5 left-5 z-10 pointer-events-none">
+                <div className="w-7 h-7 border-l border-b rounded-bl-md" style={{ borderColor: modeColors[mode] + '2e' }} />
+                {/* Mode label lives here, not top-right: it used to sit
+                    directly under the compass and collided with its
+                    heading badge. */}
+                <div className="mt-1.5 flex items-baseline gap-2">
+                    <span className="font-mono text-micro tracking-[0.28em] opacity-70" style={{ color: modeColors[mode] }}>
+                        {modeLabels[mode]}
+                    </span>
+                    <span className="font-mono text-micro text-truarc-muted/30">EPSG:4326</span>
+                </div>
             </div>
         </>
     );

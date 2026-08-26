@@ -9,21 +9,33 @@
 import React, { useEffect, useRef, useState, useCallback, forwardRef, useImperativeHandle } from 'react';
 import mapboxgl from 'mapbox-gl';
 import {
-    simulateDiscFlight,
     trajectoryToWGS84,
     localToLngLat,
     measure3DDistance,
     smoothBezierCurve,
 } from '../utils/flightPhysics';
+import { simulateDiscFlightAsync, loadCourseCollisionData, clearCourseCollisionData } from '../physics/flightEngine';
+import { buildTerrainProfile } from '../physics/terrainProfile';
+import { sampleHoleProfile, readHole } from '../holes/holeTerrain';
 import { courseToGeoJSON } from '../data/courses';
-import { applyOffsetToGeoJSON } from '../utils/calibrationOffset';
+import { applyOffsetToGeoJSON, applyOffsetToTrees, applyOffsetToPointCloud, applyOffsetToVoxelHeader } from '../utils/calibrationOffset';
+import { applyTerrainLayers, DEFAULT_TERRAIN } from '../map/terrainLayers';
+import {
+    WIND_SOURCE, WIND_LAYER, windSourceSpec, windLayerSpec,
+    windFieldGeoJSON, streakPaint, dashStepsPerSecond, shouldShowWind, DASH_SEQUENCE,
+} from '../map/windLayer';
+import { mapTypeDef, DEFAULT_MAP_TYPE } from '../map/mapStyles';
+import TreeLayer from '../map/TreeLayer';
+import PointCloudLayer from '../map/PointCloudLayer';
+import { decodePointCloud } from '../map/pointCloudFormat';
+import { EDIT_ACTIONS } from '../editor/holeEditState';
 
 const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN;
 
 /** Path to LiDAR GeoJSON (place processed file at public/lidar/overlay.geojson) */
 const LIDAR_GEOJSON_URL = '/lidar/overlay.geojson';
 
-const MapCanvas = forwardRef(({ onMeasure, onFlightComplete, onMove, selectedDisc, throwSettings, wind, mode, activeCourse, activeHole, lidarEnabled, calibrationOffset }, ref) => {
+const MapCanvas = forwardRef(({ onMeasure, onFlightComplete, onMove, selectedDisc, throwSettings, wind, mode, activeCourse, activeHole, lidarEnabled, trueViewEnabled, calibrationOffset, editState, editTool, editDispatch, terrain, mapType, windEnabled, observedWind }, ref) => {
     const containerRef = useRef(null);
     const mapRef = useRef(null);
     const markersRef = useRef([]);
@@ -35,11 +47,61 @@ const MapCanvas = forwardRef(({ onMeasure, onFlightComplete, onMove, selectedDis
     const [mapError, setMapError] = useState(null);
     const teePointRef = useRef(null);
     const targetPointRef = useRef(null);
+    const treeLayerRef = useRef(null);
+    const treeLayerCourseIdRef = useRef(null);
+    const pointCloudLayerRef = useRef(null);
+    const pointCloudLayerCourseIdRef = useRef(null);
+    const collisionCourseIdRef = useRef(null);
+
+    // Mirrored into a ref so the map's own `load` handler — which closes
+    // over mount-time values — can read the CURRENT terrain settings.
+    const terrainRef = useRef(terrain ?? DEFAULT_TERRAIN);
+    terrainRef.current = terrain ?? DEFAULT_TERRAIN;
+
+    // ─── STYLE SWAP BOOKKEEPING ──────────────────────────────────
+    // `setStyle` throws away every source and layer this component added.
+    // Rebuilding is the app's job, and it hangs off `styleEpoch`: the
+    // style.load handler bumps it, and every effect that owns a layer
+    // lists it as a dependency so React re-runs the add. A new map layer
+    // added anywhere in this file MUST take styleEpoch in its deps, or it
+    // will disappear the first time someone changes the map type.
+    const mapTypeRef = useRef(mapType ?? DEFAULT_MAP_TYPE);
+    mapTypeRef.current = mapType ?? DEFAULT_MAP_TYPE;
+    const appliedMapTypeRef = useRef(mapType ?? DEFAULT_MAP_TYPE);
+    const [styleEpoch, setStyleEpoch] = useState(0);
+    // drawCourse is imperative (App calls it through the ref), so unlike
+    // the effect-driven layers there is no state to re-derive it from.
+    // Remember the argument in order to replay it.
+    const lastCourseRef = useRef(null);
+    const lastHoleRef = useRef(null);
 
     // ─── EXPOSE METHODS ─────────────────────────────────────────
     useImperativeHandle(ref, () => ({
         flyTo(lng, lat, zoom = 17) {
             mapRef.current?.flyTo({ center: [lng, lat], zoom, pitch: 60, bearing: -20, duration: 2500 });
+        },
+        /**
+         * Sample the ground between tee and basket for the hole card.
+         *
+         * Exposed imperatively because `queryTerrainElevation` needs the
+         * live GL context, and returns null when terrain tiles for this
+         * area have not loaded yet — the caller retries rather than
+         * rendering a card full of zeros, which would be indistinguishable
+         * from a genuinely flat hole.
+         */
+        readHoleTerrain(hole) {
+            const map = mapRef.current;
+            if (!map || !hole?.tee || !hole?.basket) return null;
+            if (!map.isStyleLoaded?.() || !map.getTerrain?.()) return null;
+
+            const profile = sampleHoleProfile(map, hole.tee, hole.basket);
+            if (!profile) return null;
+
+            // All-zero means the DEM had nothing to say here, not that
+            // the course is a billiard table.
+            if (profile.elevFt.every((v) => v === 0)) return null;
+
+            return readHole(profile);
         },
         flyToLanding(landing, lookAt = null) {
             const map = mapRef.current;
@@ -79,7 +141,11 @@ const MapCanvas = forwardRef(({ onMeasure, onFlightComplete, onMove, selectedDis
             clearMarkers();
         },
         simulateThrow() {
-            doFlightSimulation();
+            // Pre-existing dead reference (doFlightSimulation was never
+            // defined); wired to actually re-run the last throw.
+            if (lastThrowRef.current && mapRef.current) {
+                handleThrowClick(lastThrowRef.current, mapRef.current);
+            }
         },
         drawCourseLayout(course) {
             drawCourse(course);
@@ -109,8 +175,9 @@ const MapCanvas = forwardRef(({ onMeasure, onFlightComplete, onMove, selectedDis
             maxPitch: 85,
             maxZoom: 22,
             minZoom: 10,
-            // Mapbox standard-satellite gives true 3D volumetric trees
-            style: 'mapbox://styles/mapbox/standard-satellite',
+            // Whichever base map is selected at mount. Later changes go
+            // through the setStyle effect below, not through here.
+            style: mapTypeDef(mapTypeRef.current).url,
         });
 
         // `mapRef` is assigned only after `load`, so never use it to detect timeout —
@@ -146,20 +213,31 @@ const MapCanvas = forwardRef(({ onMeasure, onFlightComplete, onMove, selectedDis
         map.on('style.load', () => {
             if (instanceRemoved) return;
             try {
-                // Mapbox Standard configs for full 3D environment
-                map.setConfigProperty('basemap', 'show3dTrees', true);
-                map.setConfigProperty('basemap', 'show3dObjects', true);
-                
-                // Register multiple custom 3D models for variety
-                try {
-                    map.addModel('tree1', '/models/tree_pineDefaultA.glb');
-                    map.addModel('tree2', '/models/tree_thin_dark.glb');
-                } catch (addErr) {
-                    console.log('Models already registered or failed:', addErr.message);
+                // show3dTrees deliberately left OFF (was: true): TreeLayer
+                // now owns tree rendering from the Section 2 LiDAR
+                // inventory, and leaving Mapbox's generic Standard-style
+                // trees on would double them up on any course that has a
+                // real inventory. show3dObjects (buildings/landmarks,
+                // unrelated to trees) stays on.
+                //
+                // Only Standard styles have this config; on classic ones
+                // (Outdoors) it throws, which is expected, not an error.
+                if (mapTypeDef(mapTypeRef.current).slots) {
+                    map.setConfigProperty('basemap', 'show3dObjects', true);
                 }
             } catch (e) {
                 console.warn('Failed to set standard basemap config:', e);
             }
+
+            // The FIRST style.load is part of initial load, and the `load`
+            // handler below already does the setup. Every later one is a
+            // style SWAP, which has just destroyed everything this
+            // component added — announce it so the layer effects re-run.
+            if (!styleLoaded) return;
+            applyTerrainLayers(map, terrainRef.current, {
+                slots: mapTypeDef(mapTypeRef.current).slots,
+            });
+            setStyleEpoch((n) => n + 1);
         });
 
         map.on('load', () => {
@@ -167,22 +245,15 @@ const MapCanvas = forwardRef(({ onMeasure, onFlightComplete, onMove, selectedDis
             styleLoaded = true;
             mapRef.current = map;
             setMapLoaded(true);
-            // Terrain after first frame so the loading overlay clears without waiting on DEM setup
+            // Terrain after first frame so the loading overlay clears
+            // without waiting on DEM setup. `terrainRef` rather than the
+            // `terrain` prop: this callback closes over the value from
+            // mount, and the settings effect below may already have run.
             queueMicrotask(() => {
                 if (instanceRemoved || !mapRef.current) return;
-                try {
-                    if (!map.getSource('mapbox-dem')) {
-                        map.addSource('mapbox-dem', {
-                            type: 'raster-dem',
-                            url: 'mapbox://mapbox.mapbox-terrain-dem-v1',
-                            tileSize: 512,
-                            maxzoom: 14,
-                        });
-                    }
-                    map.setTerrain({ source: 'mapbox-dem', exaggeration: 2.0 });
-                } catch (e) {
-                    console.warn('Terrain:', e.message);
-                }
+                applyTerrainLayers(map, terrainRef.current, {
+                    slots: mapTypeDef(mapTypeRef.current).slots,
+                });
             });
         });
 
@@ -206,6 +277,130 @@ const MapCanvas = forwardRef(({ onMeasure, onFlightComplete, onMove, selectedDis
         };
     }, []);
 
+    // ─── BASE MAP TYPE ──────────────────────────────────────────
+    // Satellite / Terrain / Default. Compared against what is actually
+    // applied rather than against the previous prop, so a re-render with
+    // an unchanged type can never trigger a needless style reload — each
+    // one costs a full teardown and rebuild of every layer below.
+    useEffect(() => {
+        const map = mapRef.current;
+        if (!mapLoaded || !map) return;
+        const next = mapTypeDef(mapType ?? DEFAULT_MAP_TYPE);
+        if (appliedMapTypeRef.current === next.id) return;
+        appliedMapTypeRef.current = next.id;
+        try {
+            map.setStyle(next.url);
+        } catch (e) {
+            console.warn('[map] style swap failed:', e?.message ?? e);
+        }
+    }, [mapLoaded, mapType]);
+
+    // ─── TERRAIN LEGIBILITY LAYERS ──────────────────────────────
+    // Hillshade / contours, plus the true-scale mesh. Gated on
+    // `mapLoaded` so the first application can't race the style; after
+    // that every settings change re-applies, and applyTerrainLayers is
+    // idempotent so re-running it is just a visibility flip.
+    useEffect(() => {
+        if (!mapLoaded || !mapRef.current) return;
+        applyTerrainLayers(mapRef.current, terrain ?? DEFAULT_TERRAIN, {
+            slots: mapTypeDef(mapTypeRef.current).slots,
+        });
+    }, [mapLoaded, terrain?.hillshade, terrain?.contours, styleEpoch]);
+
+    // ─── WIND STREAKS ───────────────────────────────────────────
+    // Draws the observed wind flowing across the ground. Takes
+    // `styleEpoch` like every other layer-owning effect — a style swap
+    // destroys the source and layer, and without it the streaks would
+    // silently vanish the first time someone changes base map.
+    //
+    // The field is regenerated on `moveend` rather than every frame:
+    // geometry only has to cover the CURRENT view, and rebuilding it
+    // while the camera is still moving would rewrite the source dozens
+    // of times per pan for no visible gain.
+    useEffect(() => {
+        const map = mapRef.current;
+        if (!mapLoaded || !map) return undefined;
+
+        const show = windEnabled && shouldShowWind(observedWind);
+        const fromDeg = observedWind?.windFromDeg ?? 0;
+        const speed = observedWind?.windSpeedMps ?? 0;
+
+        const rebuild = () => {
+            try {
+                if (!mapRef.current?.isStyleLoaded?.()) return;
+                const b = map.getBounds();
+                const bounds = {
+                    west: b.getWest(), south: b.getSouth(),
+                    east: b.getEast(), north: b.getNorth(),
+                };
+                const src = map.getSource(WIND_SOURCE);
+                if (src) src.setData(windFieldGeoJSON(bounds, fromDeg));
+            } catch { /* mid-reload; the next moveend will catch up */ }
+        };
+
+        try {
+            if (show) {
+                const b = map.getBounds();
+                const bounds = {
+                    west: b.getWest(), south: b.getSouth(),
+                    east: b.getEast(), north: b.getNorth(),
+                };
+                if (!map.getSource(WIND_SOURCE)) {
+                    map.addSource(WIND_SOURCE, windSourceSpec(bounds, fromDeg));
+                }
+                if (!map.getLayer(WIND_LAYER)) {
+                    map.addLayer(windLayerSpec({
+                        slots: mapTypeDef(mapTypeRef.current).slots,
+                        speedMps: speed,
+                    }));
+                }
+                rebuild();
+                const paint = streakPaint(speed);
+                map.setPaintProperty(WIND_LAYER, 'line-opacity', paint.opacity);
+                map.setPaintProperty(WIND_LAYER, 'line-width', paint.width);
+            }
+            if (map.getLayer(WIND_LAYER)) {
+                map.setLayoutProperty(WIND_LAYER, 'visibility', show ? 'visible' : 'none');
+            }
+        } catch (e) {
+            console.warn('[wind] layer:', e?.message ?? e);
+        }
+
+        if (!show) return undefined;
+
+        map.on('moveend', rebuild);
+
+        // Motion by stepping dash patterns — Mapbox cannot tween a
+        // dasharray. Timed rather than per-frame so the rate tracks wind
+        // speed instead of the monitor's refresh rate.
+        const fps = dashStepsPerSecond(speed);
+        let step = 0;
+        const timer = fps > 0 ? setInterval(() => {
+            step = (step + 1) % DASH_SEQUENCE.length;
+            try {
+                if (mapRef.current?.getLayer(WIND_LAYER)) {
+                    mapRef.current.setPaintProperty(WIND_LAYER, 'line-dasharray', DASH_SEQUENCE[step]);
+                }
+            } catch { /* style reloading */ }
+        }, 1000 / fps) : null;
+
+        return () => {
+            map.off('moveend', rebuild);
+            if (timer) clearInterval(timer);
+        };
+    }, [mapLoaded, styleEpoch, windEnabled, observedWind?.windFromDeg, observedWind?.windSpeedMps]);
+
+    // ─── REBUILD AFTER A STYLE SWAP ─────────────────────────────
+    // The effect-driven layers (trees, LiDAR, point cloud, edit overlay)
+    // rebuild themselves by taking styleEpoch in their deps. The course
+    // layout is drawn imperatively through the ref, so nothing would
+    // re-trigger it — replay it from the remembered argument instead.
+    useEffect(() => {
+        if (styleEpoch === 0 || !mapRef.current) return;
+        if (lastCourseRef.current) drawCourse(lastCourseRef.current);
+        if (lastHoleRef.current) highlightActiveHole(lastHoleRef.current);
+    }, [styleEpoch]);
+
     // ─── CLICK HANDLERS ─────────────────────────────────────────
 
     const handleMapClick = useCallback((lngLat, map) => {
@@ -215,8 +410,48 @@ const MapCanvas = forwardRef(({ onMeasure, onFlightComplete, onMove, selectedDis
             handleMeasureClick(lngLat, map);
         } else if (currentMode === 'throw') {
             handleThrowClick(lngLat, map);
+        } else if (currentMode === 'edit') {
+            handleEditClick(lngLat);
         }
-    }, [mode, selectedDisc, throwSettings, wind, onMeasure, onFlightComplete, activeHole, activeCourse]);
+    }, [mode, selectedDisc, throwSettings, wind, onMeasure, onFlightComplete, activeHole, activeCourse, editTool, editDispatch]);
+
+    // ─── EDIT MODE (Section 5, in-app course editor) ──────────────
+    //
+    // Purely a click -> dispatch adapter: the actual edit STATE lives in
+    // App.jsx's holeEditReducer (src/editor/holeEditState.js), fully
+    // tested there without any Mapbox dependency. This function's only
+    // job is translating "the user clicked here while tool X was
+    // selected" into the matching action — no branch here decides
+    // anything the reducer doesn't already decide for itself (e.g. a
+    // stray ADD_OB_VERTEX with no polygon started is the reducer's
+    // no-op, not a check duplicated here).
+    function handleEditClick(lngLat) {
+        if (!editDispatch || !editTool) return;
+        const point = { lng: lngLat.lng, lat: lngLat.lat };
+
+        switch (editTool) {
+            case 'tee':
+                editDispatch({ type: EDIT_ACTIONS.SET_TEE, point });
+                break;
+            case 'basket':
+                editDispatch({ type: EDIT_ACTIONS.SET_BASKET, point });
+                break;
+            case 'ob':
+                editDispatch({ type: EDIT_ACTIONS.ADD_OB_VERTEX, point });
+                break;
+            case 'mando-left':
+                editDispatch({ type: EDIT_ACTIONS.ADD_MANDO, point, direction: 'left' });
+                break;
+            case 'mando-right':
+                editDispatch({ type: EDIT_ACTIONS.ADD_MANDO, point, direction: 'right' });
+                break;
+            case 'dropzone':
+                editDispatch({ type: EDIT_ACTIONS.ADD_DROPZONE, point });
+                break;
+            default:
+                break;
+        }
+    }
 
     // Update click handler when mode changes
     useEffect(() => {
@@ -230,7 +465,7 @@ const MapCanvas = forwardRef(({ onMeasure, onFlightComplete, onMove, selectedDis
         // Cursor updates (canvas may be undefined before map fully loads)
         const canvas = map.getCanvas?.();
         if (canvas?.style) {
-            canvas.style.cursor = mode === 'measure' || mode === 'throw' ? 'crosshair' : '';
+            canvas.style.cursor = mode === 'measure' || mode === 'throw' || mode === 'edit' ? 'crosshair' : '';
         }
 
         return () => {
@@ -241,7 +476,9 @@ const MapCanvas = forwardRef(({ onMeasure, onFlightComplete, onMove, selectedDis
     // ─── MEASURE MODE ──────────────────────────────────────────
 
     function handleMeasureClick(lngLat, map) {
-        const elevation = map.queryTerrainElevation(lngLat) || 0;
+        // exaggerated:false — see terrainProfile.js. A measured elevation
+        // change must be the real one, not the display's amplified one.
+        const elevation = map.queryTerrainElevation(lngLat, { exaggerated: false }) || 0;
         const point = { lng: lngLat.lng, lat: lngLat.lat, elevation };
 
         if (!teePointRef.current) {
@@ -271,6 +508,10 @@ const MapCanvas = forwardRef(({ onMeasure, onFlightComplete, onMove, selectedDis
 
     // Keep track of the last clicked location for live param updates
     const lastThrowRef = useRef(null);
+    // Discards results from a throw that's been superseded by a newer one
+    // before it resolved — the simulation is async now (worker round-trip),
+    // and settings sliders can fire several calls while dragging.
+    const throwRequestIdRef = useRef(0);
 
     // Re-simulate on setting change if we have a standing throw
     useEffect(() => {
@@ -279,18 +520,22 @@ const MapCanvas = forwardRef(({ onMeasure, onFlightComplete, onMove, selectedDis
         }
     }, [throwSettings, wind, selectedDisc, activeHole, activeCourse, handleThrowClick]);
 
-    function handleThrowClick(lngLat, map) {
+    async function handleThrowClick(lngLat, map) {
         if (!selectedDisc) return;
         lastThrowRef.current = lngLat;
+        const myRequestId = ++throwRequestIdRef.current;
 
         try {
-            const elevation = map.queryTerrainElevation?.(lngLat) ?? 0;
+            // exaggerated:false — the tee elevation is the baseline every
+            // terrain sample is differenced against (terrainProfile.js), so
+            // it must be on the same true-metres scale as they are.
+            const elevation = map.queryTerrainElevation?.(lngLat, { exaggerated: false }) ?? 0;
             const tee = { lng: lngLat.lng, lat: lngLat.lat, elevation };
 
             clearMarkers();
-            
-            // Note: We DO NOT call clearFlightPath() here because drawFlightPath 
-            // uses setData() to update the existing source. Removing and adding 
+
+            // Note: We DO NOT call clearFlightPath() here because drawFlightPath
+            // uses setData() to update the existing source. Removing and adding
             // the source in the same tick causes Mapbox WebGL worker race conditions.
             addMarker(map, lngLat, 'THROW', '#ff6b35');
 
@@ -319,36 +564,44 @@ const MapCanvas = forwardRef(({ onMeasure, onFlightComplete, onMove, selectedDis
                 baseBearing = (Math.atan2(dx, dy) * 180) / Math.PI;
             }
 
-            // Final aim = base bearing + aim slider
+            // Final aim = base bearing + aim slider. (For the 6-DOF engine
+            // this is the ONLY place the aim slider applies — see the note
+            // in flightEngine.js about the legacy double-application bug.)
             const bearing = baseBearing + (throwSettings?.aimAngle || 0);
 
-            // Terrain sampling: fallback if error
-            const getGroundElev = (x, z) => {
-                try {
-                    const { lng, lat } = localToLngLat(x, z, tee, bearing);
-                    const elev = map.queryTerrainElevation?.([lng, lat]);
-                    const absElev = elev ?? tee.elevation ?? 0;
-                    return absElev - (tee.elevation ?? 0);
-                } catch (e) {
-                    return 0;
-                }
-            };
+            // Terrain sampled once up front (main thread only — a worker
+            // can't reach Mapbox), then handed to the engine as a lookup.
+            const terrainProfile = buildTerrainProfile(map, tee, bearing, localToLngLat);
 
-            const flightResult = simulateDiscFlight(
+            const flightResult = await simulateDiscFlightAsync(
                 selectedDisc,
                 throwSettings || { power: 80, aimAngle: 0, releaseAngle: 0, noseAngle: 12 },
                 wind || { speed: 0, direction: 0 },
-                getGroundElev,
+                terrainProfile,
+                { origin: tee, bearingDeg: bearing },
             );
 
-            // Convert to WGS84
-            const wgs84Points = trajectoryToWGS84(flightResult.points, tee, bearing);
+            // A newer throw started while this one was in flight — drop it.
+            if (throwRequestIdRef.current !== myRequestId) return;
+            if (!mapRef.current) return; // unmounted while awaiting
 
-            // Draw flight path
+            // Convert to WGS84. When the worker registered a collision hit,
+            // flightResult.points is already truncated at the contact point
+            // (plus a short kick) — see collision.js's truncateTrajectoryAtHit
+            // — so this naturally draws the flight stopping at the tree.
+            const wgs84Points = trajectoryToWGS84(flightResult.points, tee, bearing);
+            const { collision } = flightResult;
+
+            // Draw flight path — red when this throw hit a tree (Section 4),
+            // the default accent color otherwise.
             try {
-                drawFlightPath(map, wgs84Points);
+                drawFlightPath(map, wgs84Points, collision);
             } catch (layerErr) {
                 console.error("Flight path drawing error:", layerErr);
+            }
+
+            if (collision?.hit && collision.firstContact) {
+                addMarker(map, { lng: collision.firstContact.lng, lat: collision.firstContact.lat }, 'HIT', '#ff3366');
             }
 
             // Mark landing
@@ -379,6 +632,8 @@ const MapCanvas = forwardRef(({ onMeasure, onFlightComplete, onMove, selectedDis
     function drawCourse(course) {
         const map = mapRef.current;
         if (!map) return;
+        // Remembered for replay after a style swap — see styleEpoch.
+        lastCourseRef.current = course;
 
         // Clear any existing course layers
         clearCourseLayout();
@@ -506,6 +761,7 @@ const MapCanvas = forwardRef(({ onMeasure, onFlightComplete, onMove, selectedDis
 
     function highlightActiveHole(hole) {
         const map = mapRef.current;
+        lastHoleRef.current = hole;   // replayed after a style swap
         if (!map || !map.getSource('course-active-hole')) return;
 
         // Update the active hole line
@@ -567,6 +823,119 @@ const MapCanvas = forwardRef(({ onMeasure, onFlightComplete, onMove, selectedDis
         holeMarkersRef.current.forEach(m => m.remove());
         holeMarkersRef.current = [];
     }
+
+    // ─── EDIT MODE OVERLAY (Section 5) ─────────────────────────
+    //
+    // Renders the CURRENT in-progress edit (src/editor/holeEditState.js's
+    // reducer state, owned by App.jsx) as a live GeoJSON layer: tee/
+    // basket points, completed + in-progress OB polygons, mando points,
+    // dropzone points. Purely a one-way state -> GeoJSON translation —
+    // this effect never mutates editState, only redraws when it
+    // changes. NOT visually verified (no Mapbox token in this
+    // environment — same standing gap as Sections 3/4's rendering).
+    useEffect(() => {
+        const map = mapRef.current;
+        if (!mapLoaded || !map) return;
+
+        const id = 'course-editor-overlay';
+        const showOverlay = mode === 'edit' && editState;
+
+        if (!showOverlay) {
+            if (map.getLayer(`${id}-ob-fill`)) map.removeLayer(`${id}-ob-fill`);
+            if (map.getLayer(`${id}-ob-line`)) map.removeLayer(`${id}-ob-line`);
+            if (map.getLayer(`${id}-points`)) map.removeLayer(`${id}-points`);
+            if (map.getSource(id)) map.removeSource(id);
+            return;
+        }
+
+        const features = [];
+        if (editState.tee) {
+            features.push({
+                type: 'Feature',
+                geometry: { type: 'Point', coordinates: [editState.tee.lng, editState.tee.lat] },
+                properties: { kind: 'tee', color: '#aa66ff' },
+            });
+        }
+        if (editState.basket) {
+            features.push({
+                type: 'Feature',
+                geometry: { type: 'Point', coordinates: [editState.basket.lng, editState.basket.lat] },
+                properties: { kind: 'basket', color: '#00ff88' },
+            });
+        }
+        for (const ring of editState.obPolygons) {
+            const coords = ring.map((p) => [p.lng, p.lat]);
+            coords.push(coords[0]); // close the ring for GeoJSON Polygon
+            features.push({
+                type: 'Feature',
+                geometry: { type: 'Polygon', coordinates: [coords] },
+                properties: { kind: 'ob' },
+            });
+        }
+        if (editState.activePolygon && editState.activePolygon.length > 0) {
+            const coords = editState.activePolygon.map((p) => [p.lng, p.lat]);
+            features.push({
+                type: 'Feature',
+                geometry: coords.length > 1 ? { type: 'LineString', coordinates: coords } : { type: 'Point', coordinates: coords[0] },
+                properties: { kind: 'ob-active' },
+            });
+        }
+        for (const mando of editState.mandos) {
+            features.push({
+                type: 'Feature',
+                geometry: { type: 'Point', coordinates: [mando.point.lng, mando.point.lat] },
+                properties: { kind: 'mando', color: mando.direction === 'left' ? '#ff6b35' : '#ffaa33' },
+            });
+        }
+        for (const dz of editState.dropzones) {
+            features.push({
+                type: 'Feature',
+                geometry: { type: 'Point', coordinates: [dz.lng, dz.lat] },
+                properties: { kind: 'dropzone', color: '#00e5ff' },
+            });
+        }
+
+        const geojson = { type: 'FeatureCollection', features };
+
+        if (map.getSource(id)) {
+            map.getSource(id).setData(geojson);
+        } else {
+            map.addSource(id, { type: 'geojson', data: geojson });
+
+            map.addLayer({
+                id: `${id}-ob-fill`,
+                type: 'fill',
+                source: id,
+                filter: ['==', ['get', 'kind'], 'ob'],
+                paint: { 'fill-color': '#ff3366', 'fill-opacity': 0.15 },
+            });
+            map.addLayer({
+                id: `${id}-ob-line`,
+                type: 'line',
+                source: id,
+                filter: ['in', ['get', 'kind'], ['literal', ['ob', 'ob-active']]],
+                paint: { 'line-color': '#ff3366', 'line-width': 2, 'line-dasharray': [2, 1] },
+            });
+            map.addLayer({
+                id: `${id}-points`,
+                type: 'circle',
+                source: id,
+                filter: ['in', ['get', 'kind'], ['literal', ['tee', 'basket', 'mando', 'dropzone']]],
+                paint: {
+                    'circle-radius': 7,
+                    'circle-color': ['get', 'color'],
+                    'circle-stroke-width': 2,
+                    'circle-stroke-color': '#ffffff',
+                },
+            });
+        }
+
+        // No cleanup function: exiting edit mode (or unmounting) re-runs
+        // this same effect with showOverlay=false, which removes the
+        // layer/source via the branch above — a separate cleanup here
+        // would just double-remove. (Matches drawFlightPath's own note
+        // on this file's general aversion to remove+re-add churn.)
+    }, [mapLoaded, mode, editState, styleEpoch]);
 
     // ─── DRAWING HELPERS ───────────────────────────────────────
 
@@ -640,7 +1009,21 @@ const MapCanvas = forwardRef(({ onMeasure, onFlightComplete, onMove, selectedDis
         });
     }
 
-    function drawFlightPath(map, wgs84Points) {
+    // Section 4's per-clearance gradient (the roadmap's "path segments
+    // colored by clearance") would need clearance sampled at every
+    // rendered vertex of the POST-Bezier-smoothed curve below, which
+    // doesn't correspond 1:1 to the collision-space samples analyzeCollision
+    // actually measured — a faithful version needs its own resampling
+    // pass and is left for a follow-up. This ships the binary, always-
+    // accurate signal the analysis already gives for free: the whole
+    // path (and its landing markers) render in an alert color the moment
+    // a throw registers a hit, since a hit path is by construction
+    // truncated right at the obstacle (see truncateTrajectoryAtHit) —
+    // there's no "clean" portion after that point to distinguish.
+    const FLIGHT_PATH_COLOR = '#00e5ff';
+    const FLIGHT_PATH_HIT_COLOR = '#ff3366';
+
+    function drawFlightPath(map, wgs84Points, collision) {
         const smooth = smoothBezierCurve(
             wgs84Points.map((p) => ({ x: p.lng, y: p.altitude, z: p.lat })),
             200,
@@ -649,12 +1032,15 @@ const MapCanvas = forwardRef(({ onMeasure, onFlightComplete, onMove, selectedDis
         // [lng, lat]
         const coordinates = smooth.map((p) => [p.x, p.z]);
         const id = 'flight-path';
+        const color = collision?.hit ? FLIGHT_PATH_HIT_COLOR : FLIGHT_PATH_COLOR;
 
         if (map.getSource(id)) {
             map.getSource(id).setData({
                 type: 'Feature',
                 geometry: { type: 'LineString', coordinates },
             });
+            map.setPaintProperty(`${id}-glow`, 'line-color', color);
+            map.setPaintProperty(`${id}-layer`, 'line-color', color);
         } else {
             map.addSource(id, {
                 type: 'geojson',
@@ -670,7 +1056,7 @@ const MapCanvas = forwardRef(({ onMeasure, onFlightComplete, onMove, selectedDis
                 type: 'line',
                 source: id,
                 paint: {
-                    'line-color': '#00e5ff',
+                    'line-color': color,
                     'line-width': 8,
                     'line-blur': 6,
                     'line-opacity': 0.3,
@@ -683,7 +1069,7 @@ const MapCanvas = forwardRef(({ onMeasure, onFlightComplete, onMove, selectedDis
                 type: 'line',
                 source: id,
                 paint: {
-                    'line-color': '#00e5ff',
+                    'line-color': color,
                     'line-width': 3,
                     'line-opacity': 0.9,
                 },
@@ -852,81 +1238,176 @@ const MapCanvas = forwardRef(({ onMeasure, onFlightComplete, onMove, selectedDis
             if (map.getLayer(layerId)) map.removeLayer(layerId);
             if (map.getSource(sourceId)) map.removeSource(sourceId);
         };
-    }, [mapLoaded, lidarEnabled, calibrationOffset]);
+    }, [mapLoaded, lidarEnabled, calibrationOffset, styleEpoch]);
 
-    // ─── OBSTACLE LAYER (LiDAR trees per course) ─────────────────
+    // ─── TREE LAYER (Section 2 LiDAR tree inventory, per course) ──
+    //
+    // Replaces the old GLB `model`-layer approach (two generic Kenney
+    // trees stretched by a height number) with TreeLayer — a Three.js
+    // custom layer rendering each tree's real, measured crown shape.
+    // See src/map/TreeLayer.js and docs/ACCURACY_ROADMAP.md §3.
     useEffect(() => {
         const map = mapRef.current;
         if (!mapLoaded || !map) return;
 
-        const sourceId = 'obstacle-trees';
-        const layerId = 'obstacle-trees-layer';
         const courseId = activeCourse?.id;
 
-        if (!courseId) {
-            if (map.getLayer(layerId)) map.removeLayer(layerId);
-            if (map.getSource(sourceId)) map.removeSource(sourceId);
-            return;
+        // Course changed (or cleared) — TreeLayer's coordinate frame is
+        // anchored at construction time, so a new course needs a new
+        // instance rather than an update to the existing one.
+        if (treeLayerRef.current && treeLayerCourseIdRef.current !== courseId) {
+            if (map.getLayer(treeLayerRef.current.id)) map.removeLayer(treeLayerRef.current.id);
+            treeLayerRef.current = null;
+            treeLayerCourseIdRef.current = null;
+        }
+
+        if (!courseId || !activeCourse?.center) return;
+
+        if (!treeLayerRef.current) {
+            const layer = new TreeLayer({
+                id: `truarc-trees-${courseId}`,
+                anchorLng: activeCourse.center.lng,
+                anchorLat: activeCourse.center.lat,
+            });
+            map.addLayer(layer);
+            treeLayerRef.current = layer;
+            treeLayerCourseIdRef.current = courseId;
         }
 
         const ac = new AbortController();
-        fetch(`/lidar/${courseId}_trees.geojson`, { signal: ac.signal })
+        fetch(`/lidar/${courseId}_trees.json`, { signal: ac.signal })
             .then((res) => {
-                if (!res.ok) throw new Error('Not found');
+                if (!res.ok) throw new Error(`Not found (${res.status})`);
                 return res.json();
             })
-            .then((geojson) => {
+            .then((data) => {
                 const offset = calibrationOffset || { dLng: 0, dLat: 0, dElev: 0 };
-                const adjusted = applyOffsetToGeoJSON(geojson, offset);
-
-                if (map.getSource(sourceId)) {
-                    map.getSource(sourceId).setData(adjusted);
-                } else {
-                    map.addSource(sourceId, { type: 'geojson', data: adjusted });
-                    map.addLayer({
-                        id: layerId,
-                        type: 'model',
-                        source: sourceId,
-                        layout: {
-                            // Pseudo-randomly pick between the 2 models based on the tree's height
-                            // multiplying heightM by 10 and modulo 2 gives a random-feeling distribution
-                            'model-id': [
-                                'match',
-                                ['%', ['round', ['*', ['get', 'heightM'], 10]], 2],
-                                0, 'tree1',
-                                1, 'tree2',
-                                'tree1'
-                            ]
-                        },
-                        paint: {
-                            // Dynamically scale the 3D asset based on LiDAR height data (heightM)
-                            // We map 100m to a scale of [6, 6, 10] because the downloaded Kenney models 
-                            // already have a large base size (approx 10 meters tall natively).
-                            'model-scale': [
-                                'interpolate',
-                                ['linear'],
-                                ['get', 'heightM'],
-                                0, ['literal', [0, 0, 0]],
-                                100, ['literal', [6.0, 6.0, 10.0]]
-                            ],
-                            'model-opacity': 1.0,
-                            'model-color': '#228B22' // Adds slight foliage tinting
-                        },
-                    });
-                }
+                const trees = applyOffsetToTrees(data.trees || [], offset);
+                treeLayerRef.current?.setTrees(trees);
             })
             .catch((err) => {
-                console.error('Obstacle Layer Failed:', err);
-                if (map.getLayer(layerId)) map.removeLayer(layerId);
-                if (map.getSource(sourceId)) map.removeSource(sourceId);
+                if (err.name === 'AbortError') return;
+                // Most courses don't have a processed inventory yet
+                // (Section 2's pipeline hasn't been run against real
+                // LiDAR for them) — this is an expected, not an error,
+                // state; log quietly and leave the layer empty.
+                console.info(`No LiDAR tree inventory for "${courseId}" (${err.message}); rendering none.`);
+                treeLayerRef.current?.setTrees([]);
             });
 
-        return () => {
-            ac.abort();
-            if (map.getLayer(layerId)) map.removeLayer(layerId);
-            if (map.getSource(sourceId)) map.removeSource(sourceId);
-        };
-    }, [mapLoaded, activeCourse?.id, calibrationOffset]);
+        // Note: this cleanup only aborts the in-flight fetch — it does
+        // NOT remove the TreeLayer itself. Removing it here would tear
+        // it down on every calibrationOffset change (a dependency of
+        // this same effect), forcing a full scene rebuild for what's
+        // meant to be a cheap re-tint. The course-change branch above
+        // already removes the layer explicitly when courseId changes.
+        return () => ac.abort();
+    }, [mapLoaded, activeCourse?.id, activeCourse?.center?.lng, activeCourse?.center?.lat, calibrationOffset, styleEpoch]);
+
+    // ─── COLLISION DATA (Section 4) ────────────────────────────────
+    //
+    // Loads the course's voxel occupancy grid + tree inventory into the
+    // flight-sim worker (see flightEngine.js/worker.js/collision.js) so
+    // every subsequent throw gets checked for tree collisions. Does not
+    // touch the map itself (no mapLoaded gate) — the worker exists
+    // independently of Mapbox.
+    useEffect(() => {
+        const courseId = activeCourse?.id;
+
+        if (collisionCourseIdRef.current !== courseId) {
+            clearCourseCollisionData();
+            collisionCourseIdRef.current = courseId;
+        }
+        if (!courseId) return undefined;
+
+        const ac = new AbortController();
+        const offset = calibrationOffset || { dLng: 0, dLat: 0, dElev: 0 };
+
+        Promise.all([
+            fetch(`/lidar/${courseId}_voxels_header.json`, { signal: ac.signal }).then((res) => {
+                if (!res.ok) throw new Error(`Not found (${res.status})`);
+                return res.json();
+            }),
+            fetch(`/lidar/${courseId}_voxels.bin`, { signal: ac.signal }).then((res) => {
+                if (!res.ok) throw new Error(`Not found (${res.status})`);
+                return res.arrayBuffer();
+            }),
+            fetch(`/lidar/${courseId}_trees.json`, { signal: ac.signal })
+                .then((res) => (res.ok ? res.json() : { trees: [] }))
+                .catch(() => ({ trees: [] })),
+        ])
+            .then(([voxelHeader, voxelBuffer, treesData]) => {
+                if (ac.signal.aborted) return;
+                const shiftedHeader = applyOffsetToVoxelHeader(voxelHeader, offset);
+                const shiftedTrees = applyOffsetToTrees(treesData.trees || [], offset);
+                loadCourseCollisionData(shiftedHeader, voxelBuffer, shiftedTrees, activeHole);
+            })
+            .catch((err) => {
+                if (err.name === 'AbortError') return;
+                // Most courses don't have a processed voxel grid yet
+                // (Section 2's pipeline hasn't been run against real
+                // LiDAR for them) — expected, not an error; collision
+                // detection is simply unavailable until it has.
+                console.info(`No LiDAR voxel grid for "${courseId}" (${err.message}); collision detection unavailable.`);
+                clearCourseCollisionData();
+            });
+
+        return () => ac.abort();
+    }, [activeCourse?.id, activeHole, calibrationOffset]);
+
+    // ─── "TRUE VIEW" POINT CLOUD (Section 3, step 4) ──────────────
+    //
+    // Opt-in raw-point alternative to TreeLayer's parametric crowns —
+    // see src/map/PointCloudLayer.js. Off by default (trueViewEnabled),
+    // and only fetched at all while it's on, since the point export is
+    // the largest of the LiDAR outputs (up to ~300k points/course).
+    useEffect(() => {
+        const map = mapRef.current;
+        if (!mapLoaded || !map) return;
+
+        const courseId = activeCourse?.id;
+
+        if (pointCloudLayerRef.current && pointCloudLayerCourseIdRef.current !== courseId) {
+            if (map.getLayer(pointCloudLayerRef.current.id)) map.removeLayer(pointCloudLayerRef.current.id);
+            pointCloudLayerRef.current = null;
+            pointCloudLayerCourseIdRef.current = null;
+        }
+
+        if (!trueViewEnabled || !courseId || !activeCourse?.center) {
+            pointCloudLayerRef.current?.clear();
+            return;
+        }
+
+        if (!pointCloudLayerRef.current) {
+            const layer = new PointCloudLayer({
+                id: `truarc-points-${courseId}`,
+                anchorLng: activeCourse.center.lng,
+                anchorLat: activeCourse.center.lat,
+            });
+            map.addLayer(layer);
+            pointCloudLayerRef.current = layer;
+            pointCloudLayerCourseIdRef.current = courseId;
+        }
+
+        const ac = new AbortController();
+        fetch(`/lidar/${courseId}_points.bin`, { signal: ac.signal })
+            .then((res) => {
+                if (!res.ok) throw new Error(`Not found (${res.status})`);
+                return res.arrayBuffer();
+            })
+            .then((buffer) => {
+                const decoded = decodePointCloud(buffer);
+                const offset = calibrationOffset || { dLng: 0, dLat: 0, dElev: 0 };
+                pointCloudLayerRef.current?.loadPoints(applyOffsetToPointCloud(decoded, offset));
+            })
+            .catch((err) => {
+                if (err.name === 'AbortError') return;
+                console.info(`No LiDAR point cloud for "${courseId}" (${err.message}); true view unavailable.`);
+                pointCloudLayerRef.current?.clear();
+            });
+
+        return () => ac.abort();
+    }, [mapLoaded, trueViewEnabled, activeCourse?.id, activeCourse?.center?.lng, activeCourse?.center?.lat, calibrationOffset, styleEpoch]);
 
     // ─── RENDER ─────────────────────────────────────────────────
     return (

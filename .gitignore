@@ -17,8 +17,10 @@ logs/
 npm-debug.log*
 
 # LiDAR data (large files)
-raw_data/*.laz
-raw_data/*.las
+# Recursive (**) so tools/lidar_pipeline's raw_data/usgs_cache/ subfolder
+# is covered too, not just raw_data/'s direct children.
+raw_data/**/*.laz
+raw_data/**/*.las
 processed_data/
 public/lidar/**/*.geojson
 

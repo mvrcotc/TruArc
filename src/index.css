@@ -2,18 +2,18 @@
 @tailwind components;
 @tailwind utilities;
 
-/* ─── ROOT VARIABLES ─── */
+/* ─── ROOT VARIABLES (kept in sync with tailwind.config.js tokens) ─── */
 :root {
-  --truarc-bg: #0a0e17;
-  --truarc-surface: #111827;
-  --truarc-card: #1a2235;
-  --truarc-border: #2a3a52;
-  --truarc-accent: #00e5ff;
-  --truarc-green: #00ff88;
-  --truarc-warn: #ff6b35;
-  --truarc-danger: #ff3366;
-  --truarc-text: #e2e8f0;
-  --truarc-muted: #8892b0;
+  --truarc-bg: #0b0d12;
+  --truarc-surface: #12151d;
+  --truarc-card: #151924;
+  --truarc-border: #252b3a;
+  --truarc-accent: #4cb8ff;
+  --truarc-green: #34d399;
+  --truarc-warn: #f5a65b;
+  --truarc-danger: #ff6b7a;
+  --truarc-text: #f0f2f7;
+  --truarc-muted: #98a1b5;
 }
 
 /* ─── BASE ─── */
@@ -31,6 +31,27 @@ body,
   overflow: hidden;
   background: var(--truarc-bg);
   font-family: 'Inter', system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Focus is part of premium, not an afterthought: a visible, consistent
+   ring on keyboard focus only (not on mouse clicks). */
+:focus-visible {
+  outline: 2px solid rgba(76, 184, 255, 0.55);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Honor OS-level motion preferences everywhere at once. */
+@media (prefers-reduced-motion: reduce) {
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }
 
 /* ─── SCROLLBAR ─── */
@@ -39,7 +60,7 @@ body,
 }
 
 ::-webkit-scrollbar-track {
-  background: var(--truarc-bg);
+  background: transparent;
 }
 
 ::-webkit-scrollbar-thumb {
@@ -48,30 +69,30 @@ body,
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--truarc-accent);
+  background: var(--truarc-muted);
 }
 
-/* ─── GLASSMORPHISM ─── */
+/* ─── SURFACES ─── */
 @layer components {
+
+  /* Floating panel: soft blur, hairline border, layered shadow, a faint
+     top inset highlight. No accent-tinted halo — elevation reads through
+     shadow depth, not glow. */
   .glass-panel {
-    @apply bg-truarc-card/80 backdrop-blur-xl border border-truarc-border/50 rounded-xl;
-    box-shadow:
-      0 0 1px rgba(0, 229, 255, 0.1),
-      0 8px 32px rgba(0, 0, 0, 0.4),
-      inset 0 1px 0 rgba(255, 255, 255, 0.05);
+    @apply bg-truarc-card/85 backdrop-blur-xl border border-white/[0.07] rounded-2xl shadow-elev-2;
   }
 
   .glass-panel-sm {
-    @apply bg-truarc-card/70 backdrop-blur-lg border border-truarc-border/40 rounded-lg;
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+    @apply bg-white/[0.03] border border-white/[0.06] rounded-xl shadow-elev-1;
   }
 
+  /* Section title: Inter, not mono — mono is reserved for DATA. */
   .cad-text {
-    @apply font-mono text-truarc-accent text-xs tracking-wider uppercase;
+    @apply font-sans font-semibold text-truarc-text/90 text-label tracking-[0.06em] uppercase;
   }
 
   .cad-label {
-    @apply font-mono text-truarc-muted text-[10px] tracking-[0.2em] uppercase;
+    @apply font-sans font-medium text-truarc-muted/90 text-micro tracking-[0.08em] uppercase;
   }
 
   .cad-value {
@@ -79,20 +100,66 @@ body,
   }
 
   .cad-divider {
-    @apply border-t border-truarc-border/40 my-2;
+    @apply border-t border-white/[0.06] my-2;
   }
 
   .btn-primary {
-    @apply px-4 py-2 rounded-lg font-medium text-sm transition-all duration-200;
-    @apply bg-truarc-accent/10 text-truarc-accent border border-truarc-accent/30;
-    @apply hover:bg-truarc-accent/20 hover:border-truarc-accent/60 hover:shadow-glow;
-    @apply active:scale-95;
+    @apply px-4 py-2 rounded-lg font-medium text-sm transition-all duration-150;
+    @apply bg-truarc-accent/10 text-truarc-accent border border-truarc-accent/25;
+    @apply hover:bg-truarc-accent/[0.16] hover:border-truarc-accent/40;
+    @apply active:scale-[0.98];
   }
 
   .btn-ghost {
-    @apply px-3 py-1.5 rounded-md font-medium text-xs transition-all duration-200;
-    @apply text-truarc-muted hover:text-truarc-text hover:bg-truarc-card;
+    @apply px-3 py-1.5 rounded-md font-medium text-xs transition-all duration-150;
+    @apply text-truarc-muted hover:text-truarc-text hover:bg-white/[0.05];
+    @apply active:scale-[0.98];
   }
+}
+
+/* ─── RANGE SLIDERS ───
+   One shared style for every slider in the app. The FILL is painted by
+   the component as an inline background gradient; this styles the thumb
+   and neutralizes the native track. */
+input[type='range'].slider-input {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 4px;
+  border-radius: 9999px;
+  outline: none;
+}
+
+input[type='range'].slider-input::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #f0f2f7;
+  border: 1px solid rgba(0, 0, 0, 0.35);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.45), 0 2px 8px rgba(0, 0, 0, 0.35);
+  cursor: grab;
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+
+input[type='range'].slider-input::-webkit-slider-thumb:hover {
+  transform: scale(1.15);
+}
+
+input[type='range'].slider-input:active::-webkit-slider-thumb {
+  cursor: grabbing;
+  transform: scale(1.05);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.45), 0 0 0 6px rgba(76, 184, 255, 0.14);
+}
+
+input[type='range'].slider-input::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #f0f2f7;
+  border: 1px solid rgba(0, 0, 0, 0.35);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.45), 0 2px 8px rgba(0, 0, 0, 0.35);
+  cursor: grab;
 }
 
 /* ─── MAPBOX OVERRIDES ─── */
@@ -105,18 +172,20 @@ body,
   outline: none;
 }
 
-/* ─── GRID OVERLAY ─── */
+/* ─── GRID OVERLAY ───
+   Kept as a whisper of the tactical identity — neutral white, barely
+   there, instead of the old cyan grid. */
 .tactical-grid {
   background-image:
-    linear-gradient(rgba(0, 229, 255, 0.03) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(0, 229, 255, 0.03) 1px, transparent 1px);
+    linear-gradient(rgba(255, 255, 255, 0.015) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.015) 1px, transparent 1px);
   background-size: 40px 40px;
   pointer-events: none;
 }
 
-/* ─── FLIGHT PATH GLOW ─── */
+/* ─── FLIGHT PATH GLOW (map feature, stays vivid on purpose) ─── */
 .flight-path-glow {
-  filter: drop-shadow(0 0 6px rgba(0, 229, 255, 0.6));
+  filter: drop-shadow(0 0 6px rgba(76, 184, 255, 0.55));
 }
 
 /* ─── PULSE RING ─── */
@@ -168,7 +237,7 @@ body,
 }
 
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-  background: var(--truarc-accent);
+  background: var(--truarc-muted);
 }
 
 /* ─── HOLE MARKER TRANSITIONS ─── */
