@@ -19,6 +19,15 @@
  * fetches for WeatherPanel. One fetch, one unit path, and the two
  * panels cannot disagree about the weather at the same course.
  *
+ * ── WIND LIVES IN THE WIND PANEL, NOT HERE ───────────────────────────
+ * This card carries the AMBIENT conditions — temperature, sky, humidity
+ * — and deliberately no wind speed, even though the observation it
+ * reads carries one. Wind is the reading that changes how you throw, so
+ * it gets the panel below with its direction, its gusts, and how it
+ * plays on the hole you are looking at. Printing the speed in both
+ * places would be the same number twice with less context in one of
+ * them.
+ *
  * ── CANONICAL UNITS IN, DISPLAY UNITS OUT ────────────────────────────
  * The observation is metric by construction (°C, m/s) because that is
  * what the physics consumes. Conversion to °F and mph happens HERE, at
@@ -27,9 +36,8 @@
  */
 
 import React from 'react';
-import { Cloud, CloudRain, CloudFog, Sun, CloudSun, Wind, Droplets } from 'lucide-react';
+import { Cloud, CloudRain, CloudFog, Sun, CloudSun, Droplets } from 'lucide-react';
 
-const MPS_TO_MPH = 2.23694;
 const cToF = (c) => (c * 9) / 5 + 32;
 
 /**
@@ -68,7 +76,6 @@ export default function CurrentWeather({ observed, state }) {
 
     const [Icon, label] = CONDITIONS[observed.weatherCode] ?? [Cloud, null];
     const tempF = observed.temperatureC == null ? null : Math.round(cToF(observed.temperatureC));
-    const windMph = Math.round(observed.windSpeedMps * MPS_TO_MPH);
 
     return (
         <div className="glass-panel w-[320px] p-3.5">
@@ -88,14 +95,13 @@ export default function CurrentWeather({ observed, state }) {
                     )}
                 </div>
 
-                <div className="ml-auto flex flex-col items-end gap-1">
-                    <Reading Icon={Wind} value={`${windMph} mph`} />
-                    {/* Omitted rather than defaulted when the service did
-                        not report it — see weather.js. */}
-                    {observed.humidityPct != null && (
+                {/* Omitted rather than defaulted when the service did not
+                    report it — see weather.js. */}
+                {observed.humidityPct != null && (
+                    <div className="ml-auto">
                         <Reading Icon={Droplets} value={`${observed.humidityPct}%`} />
-                    )}
-                </div>
+                    </div>
+                )}
             </div>
         </div>
     );

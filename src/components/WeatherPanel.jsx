@@ -1,6 +1,6 @@
 /**
  * ╔══════════════════════════════════════════════════════════════════╗
- * ║  WeatherPanel — observed conditions, and the wind you simulate   ║
+ * ║  WeatherPanel — the wind that is actually blowing                ║
  * ╚══════════════════════════════════════════════════════════════════╝
  *
  * Lives in the LEFT rail with the course/hole context, because wind is
@@ -9,13 +9,22 @@
  * It used to sit inside the throw panel on the right, which implied it
  * was part of a particular throw's setup.
  *
- * Two states, always distinguishable:
- *   OBSERVED — the live reading for this course's coordinates. Shown
- *              with its source and timestamp so it is never mistaken
- *              for a default.
- *   MANUAL   — the player has moved a slider. The observed reading
- *              stays on screen so they can see how far they have
- *              departed from reality, and one click restores it.
+ * ── THE SLIDERS ARE GONE, AND THAT IS THE POINT ──────────────────────
+ * This panel used to let a player dial in a hypothetical wind and watch
+ * a simulated flight respond. With flight simulation hidden
+ * (src/features.js — the engine clears 4 of 23 ground-truth envelopes),
+ * those sliders moved a number that reached nothing: a control that
+ * looks live and does nothing is worse than no control, because it
+ * teaches a player that the app's readouts are decorative.
+ *
+ * What remains is measurement. The observation is the live reading for
+ * this course's coordinates, shown with its source and timestamp so it
+ * cannot be mistaken for a default, and "on this hole" is pure geometry
+ * — the observed compass bearing resolved against the hole's own
+ * bearing. Neither needs the simulator, and both are things a player
+ * standing on the tee actually wants.
+ *
+ * The sliders come back with the simulator, not before.
  *
  * ── DIRECTION IS COMPASS, NOT THROW-RELATIVE ─────────────────────────
  * The slider and rose are in meteorological degrees — the bearing the
@@ -36,34 +45,31 @@
 
 import React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Wind, RefreshCw, CloudOff, Thermometer, ChevronDown } from 'lucide-react';
+import { Wind, RefreshCw, CloudOff, ChevronDown } from 'lucide-react';
 import { compassLabel, describeRelativeWind, relativeWindDirection } from '../utils/weather';
 
-const SLIDER_FILL = 'rgba(76, 184, 255, 0.9)';
-const SLIDER_TRACK = 'rgba(255, 255, 255, 0.08)';
-
 export default function WeatherPanel({
-    wind,
-    onUpdateWind,
     observed,
     observedState,      // 'idle' | 'loading' | 'ok' | 'unavailable'
     onRefresh,
-    onUseObserved,
     holeBearingDeg,
     expanded,
     onToggle,
 }) {
-    const usingObserved = !!observed
-        && Math.abs((wind?.speed ?? 0) - observed.windSpeedMps) < 0.05
-        && Math.abs((wind?.direction ?? 0) - observed.windFromDeg) < 0.5;
+    // Everything below reads from the OBSERVATION. There is no manual
+    // wind any more, so there is also no "are we still on the observed
+    // value" question to answer.
+    const speedMps = observed?.windSpeedMps ?? 0;
+    const fromDeg = observed?.windFromDeg ?? 0;
 
-    // How the wind will actually play on the hole being looked at. Only
+    // How the wind actually plays on the hole being looked at. Only
     // meaningful once we know which way the hole faces — a compass
-    // bearing on its own can't say "headwind".
-    const relative = Number.isFinite(holeBearingDeg)
-        ? relativeWindDirection(wind?.direction ?? 0, holeBearingDeg)
+    // bearing on its own can't say "headwind". This is geometry, not
+    // simulation: it survives the simulator being switched off.
+    const relative = observed && Number.isFinite(holeBearingDeg)
+        ? relativeWindDirection(fromDeg, holeBearingDeg)
         : null;
-    const playsAs = relative === null ? null : describeRelativeWind(relative, wind?.speed ?? 0);
+    const playsAs = relative === null ? null : describeRelativeWind(relative, speedMps);
 
     return (
         <div className="glass-panel w-[320px] p-3.5">
@@ -78,8 +84,8 @@ export default function WeatherPanel({
                 </span>
                 {/* Collapsed summary — the panel is useful without opening it */}
                 <span className="font-mono text-micro text-truarc-muted tabular-nums ml-auto mr-1">
-                    {(wind?.speed ?? 0) > 0
-                        ? `${(wind.speed).toFixed(1)} m/s ${compassLabel(wind.direction)}`
+                    {!observed ? '—' : speedMps > 0
+                        ? `${speedMps.toFixed(1)} m/s ${compassLabel(fromDeg)}`
                         : 'Calm'}
                 </span>
                 <ChevronDown
@@ -101,9 +107,7 @@ export default function WeatherPanel({
                             <ObservedRow
                                 observed={observed}
                                 state={observedState}
-                                usingObserved={usingObserved}
                                 onRefresh={onRefresh}
-                                onUseObserved={onUseObserved}
                             />
 
                             {/* How it plays, given the hole's direction */}
@@ -114,41 +118,13 @@ export default function WeatherPanel({
                                 </div>
                             )}
 
-                            <WindSlider
-                                label="Speed"
-                                value={wind?.speed ?? 0}
-                                onChange={(v) => onUpdateWind({ ...wind, speed: v })}
-                                min={0}
-                                max={15}
-                                step={0.5}
-                                unit="m/s"
-                                // Both the observation and this slider are the
-                                // wind at 10 m — the height every weather
-                                // service reports at. The engine shears it down
-                                // to the altitude the disc actually flies
-                                // through, so the disc feels roughly 70 % of
-                                // this near the ground. Saying so stops the
-                                // number reading as "wind at disc height",
-                                // which would make every flight look
-                                // over-blown. 15 m/s is already a near gale;
-                                // above that nobody is playing.
-                                hint="at 10 m — the disc flies lower, where it's weaker"
-                            />
-                            <WindSlider
-                                label="From"
-                                value={wind?.direction ?? 0}
-                                onChange={(v) => onUpdateWind({ ...wind, direction: v })}
-                                min={0}
-                                max={359}
-                                step={5}
-                                unit={`° ${compassLabel(wind?.direction ?? 0)}`}
-                            />
-
-                            <WindRose
-                                fromDeg={wind?.direction ?? 0}
-                                holeBearingDeg={holeBearingDeg}
-                                speed={wind?.speed ?? 0}
-                            />
+                            {observed && (
+                                <WindRose
+                                    fromDeg={fromDeg}
+                                    holeBearingDeg={holeBearingDeg}
+                                    speed={speedMps}
+                                />
+                            )}
                         </div>
                     </motion.div>
                 )}
@@ -159,7 +135,7 @@ export default function WeatherPanel({
 
 // ─── OBSERVED CONDITIONS ─────────────────────────────────────────────
 
-function ObservedRow({ observed, state, usingObserved, onRefresh, onUseObserved }) {
+function ObservedRow({ observed, state, onRefresh }) {
     if (state === 'loading') {
         return (
             <div className="flex items-center gap-2 text-truarc-muted/70">
@@ -196,15 +172,6 @@ function ObservedRow({ observed, state, usingObserved, onRefresh, onUseObserved 
             <div className="flex items-center justify-between gap-2 mb-1.5">
                 <span className="cad-label">Observed now</span>
                 <div className="flex items-center gap-1 shrink-0">
-                    {!usingObserved && (
-                        <button
-                            onClick={onUseObserved}
-                            title="Set the wind back to the live reading"
-                            className="text-micro font-medium px-2 py-0.5 rounded-md text-truarc-accent bg-truarc-accent/[0.08] hover:bg-truarc-accent/[0.16] active:scale-[0.97] transition-all"
-                        >
-                            Use
-                        </button>
-                    )}
                     <button
                         onClick={onRefresh}
                         title="Refresh"
@@ -228,58 +195,15 @@ function ObservedRow({ observed, state, usingObserved, onRefresh, onUseObserved 
                         gusts {observed.gustMps.toFixed(1)}
                     </span>
                 )}
-                {observed.temperatureC != null && (
-                    <span className="flex items-center gap-1 text-micro text-truarc-muted/60 tabular-nums">
-                        <Thermometer size={10} />
-                        {observed.temperatureC.toFixed(0)}°C
-                    </span>
-                )}
             </div>
 
             <div className="text-micro text-truarc-muted/40 mt-1">
-                {usingObserved ? 'In use · ' : 'Adjusted · '}
                 Open-Meteo{observed.observedAt ? ` · ${observed.observedAt.replace('T', ' ')}` : ''}
             </div>
         </div>
     );
 }
 
-// ─── CONTROLS ────────────────────────────────────────────────────────
-
-function WindSlider({ label, value, onChange, min, max, step, unit, hint }) {
-    const pct = ((value - min) / (max - min)) * 100;
-    return (
-        <div>
-            <div className="flex justify-between items-baseline mb-1.5">
-                <span className="cad-label">{label}</span>
-                <span className="font-mono text-xs text-truarc-text tabular-nums">
-                    {value.toFixed(step < 1 ? 1 : 0)}
-                    <span className="text-truarc-muted/60 ml-0.5">{unit}</span>
-                </span>
-            </div>
-            {hint && (
-                <div className="text-micro text-truarc-muted/45 -mt-1 mb-1.5 leading-tight">{hint}</div>
-            )}
-            <input
-                type="range"
-                min={min}
-                max={max}
-                step={step}
-                value={value}
-                onChange={(e) => onChange(parseFloat(e.target.value))}
-                className="slider-input w-full cursor-pointer"
-                style={{ background: `linear-gradient(to right, ${SLIDER_FILL} ${pct}%, ${SLIDER_TRACK} ${pct}%)` }}
-            />
-        </div>
-    );
-}
-
-/**
- * Compass rose in ABSOLUTE degrees, with the hole's own direction drawn
- * alongside the wind. Seeing both on one dial is what makes "from the
- * west" mean something: the angle between them IS the head/cross/tail
- * answer, without the player doing arithmetic.
- */
 function WindRose({ fromDeg, holeBearingDeg, speed }) {
     const R = 30;
     const C = 40;

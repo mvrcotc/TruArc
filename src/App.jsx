@@ -52,6 +52,14 @@ export default function App() {
     // what WeatherPanel's rose shows. It is rotated into each engine's
     // throw-relative frame once, at the engine boundary — see
     // throwerProfile.buildWindSpec.
+    //
+    // No longer player-editable: the sliders that set it only ever fed
+    // the flight simulator, which is hidden (src/features.js), so they
+    // were a live-looking control that moved nothing. It now simply
+    // MIRRORS the observation, which is also the right default for the
+    // day the simulator returns — the earlier reasoning against
+    // auto-applying it ("silently moving the sliders under the player")
+    // only held while there were sliders to move.
     const [wind, setWind] = useState({ speed: 0, direction: 0 });
     const [observedWeather, setObservedWeather] = useState(null);
     const [weatherState, setWeatherState] = useState('idle'); // idle|loading|ok|unavailable
@@ -462,14 +470,14 @@ export default function App() {
         return () => ac.abort();
     }, [activeCourse?.id, loadWeather]);
 
-    const handleUseObserved = useCallback(() => {
+    // Keep the engine-facing wind aligned with what is actually blowing.
+    // Costs nothing while the simulator is hidden and means it starts
+    // from reality rather than dead calm when it comes back.
+    useEffect(() => {
         if (!observedWeather) return;
         setWind({
-            // Rounded to the slider's own step and clamped to its range, so
-            // "Use" always lands on a value the slider can represent —
-            // otherwise the thumb pins to the end and the next drag jumps.
-            speed: Math.min(15, Math.round(observedWeather.windSpeedMps * 2) / 2),
-            direction: Math.round(observedWeather.windFromDeg / 5) * 5 % 360,
+            speed: observedWeather.windSpeedMps,
+            direction: observedWeather.windFromDeg,
         });
     }, [observedWeather]);
 
@@ -562,12 +570,9 @@ export default function App() {
                     without crowding the course browser. */}
                 {(mode === 'throw' || mode === 'course') && (
                     <WeatherPanel
-                        wind={wind}
-                        onUpdateWind={setWind}
                         observed={observedWeather}
                         observedState={weatherState}
                         onRefresh={handleRefreshWeather}
-                        onUseObserved={handleUseObserved}
                         holeBearingDeg={activeHole?.bearing}
                         expanded={weatherExpanded}
                         onToggle={() => setWeatherExpanded((v) => !v)}
