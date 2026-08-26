@@ -485,6 +485,19 @@ export default function App() {
         loadWeather(activeCourse);
     }, [loadWeather, activeCourse]);
 
+    // Keep the reading current while a course is open.
+    //
+    // "Live" here means the freshest thing the source has, not
+    // sub-minute truth: Open-Meteo publishes current conditions hourly,
+    // so polling faster would spend requests re-fetching an identical
+    // answer. Ten minutes keeps the wind streaks from going stale across
+    // a round without pretending to a resolution the data lacks.
+    useEffect(() => {
+        if (!activeCourse?.center) return undefined;
+        const id = setInterval(() => loadWeather(activeCourse), 10 * 60 * 1000);
+        return () => clearInterval(id);
+    }, [activeCourse, loadWeather]);
+
     // ─── RENDER ─────────────────────────────────────────────────
     return (
         <div className="relative w-screen h-screen bg-truarc-bg overflow-hidden">
@@ -508,6 +521,8 @@ export default function App() {
                 editDispatch={editDispatch}
                 terrain={terrain}
                 mapType={mapType}
+                windEnabled={terrain?.wind ?? true}
+                observedWind={observedWeather}
             />
 
             {/* Tactical Grid Overlay */}

@@ -20,6 +20,10 @@ import { sampleHoleProfile, readHole } from '../holes/holeTerrain';
 import { courseToGeoJSON } from '../data/courses';
 import { applyOffsetToGeoJSON, applyOffsetToTrees, applyOffsetToPointCloud, applyOffsetToVoxelHeader } from '../utils/calibrationOffset';
 import { applyTerrainLayers, DEFAULT_TERRAIN } from '../map/terrainLayers';
+import {
+    WIND_SOURCE, WIND_LAYER, windSourceSpec, windLayerSpec,
+    windFieldGeoJSON, streakPaint, dashStepsPerSecond, shouldShowWind, DASH_SEQUENCE,
+} from '../map/windLayer';
 import { mapTypeDef, DEFAULT_MAP_TYPE } from '../map/mapStyles';
 import TreeLayer from '../map/TreeLayer';
 import PointCloudLayer from '../map/PointCloudLayer';
@@ -31,7 +35,7 @@ const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN;
 /** Path to LiDAR GeoJSON (place processed file at public/lidar/overlay.geojson) */
 const LIDAR_GEOJSON_URL = '/lidar/overlay.geojson';
 
-const MapCanvas = forwardRef(({ onMeasure, onFlightComplete, onMove, selectedDisc, throwSettings, wind, mode, activeCourse, activeHole, lidarEnabled, trueViewEnabled, calibrationOffset, editState, editTool, editDispatch, terrain, mapType }, ref) => {
+const MapCanvas = forwardRef(({ onMeasure, onFlightComplete, onMove, selectedDisc, throwSettings, wind, mode, activeCourse, activeHole, lidarEnabled, trueViewEnabled, calibrationOffset, editState, editTool, editDispatch, terrain, mapType, windEnabled, observedWind }, ref) => {
     const containerRef = useRef(null);
     const mapRef = useRef(null);
     const markersRef = useRef([]);
@@ -302,6 +306,89 @@ const MapCanvas = forwardRef(({ onMeasure, onFlightComplete, onMove, selectedDis
             slots: mapTypeDef(mapTypeRef.current).slots,
         });
     }, [mapLoaded, terrain?.hillshade, terrain?.contours, styleEpoch]);
+
+    // ─── WIND STREAKS ───────────────────────────────────────────
+    // Draws the observed wind flowing across the ground. Takes
+    // `styleEpoch` like every other layer-owning effect — a style swap
+    // destroys the source and layer, and without it the streaks would
+    // silently vanish the first time someone changes base map.
+    //
+    // The field is regenerated on `moveend` rather than every frame:
+    // geometry only has to cover the CURRENT view, and rebuilding it
+    // while the camera is still moving would rewrite the source dozens
+    // of times per pan for no visible gain.
+    useEffect(() => {
+        const map = mapRef.current;
+        if (!mapLoaded || !map) return undefined;
+
+        const show = windEnabled && shouldShowWind(observedWind);
+        const fromDeg = observedWind?.windFromDeg ?? 0;
+        const speed = observedWind?.windSpeedMps ?? 0;
+
+        const rebuild = () => {
+            try {
+                if (!mapRef.current?.isStyleLoaded?.()) return;
+                const b = map.getBounds();
+                const bounds = {
+                    west: b.getWest(), south: b.getSouth(),
+                    east: b.getEast(), north: b.getNorth(),
+                };
+                const src = map.getSource(WIND_SOURCE);
+                if (src) src.setData(windFieldGeoJSON(bounds, fromDeg));
+            } catch { /* mid-reload; the next moveend will catch up */ }
+        };
+
+        try {
+            if (show) {
+                const b = map.getBounds();
+                const bounds = {
+                    west: b.getWest(), south: b.getSouth(),
+                    east: b.getEast(), north: b.getNorth(),
+                };
+                if (!map.getSource(WIND_SOURCE)) {
+                    map.addSource(WIND_SOURCE, windSourceSpec(bounds, fromDeg));
+                }
+                if (!map.getLayer(WIND_LAYER)) {
+                    map.addLayer(windLayerSpec({
+                        slots: mapTypeDef(mapTypeRef.current).slots,
+                        speedMps: speed,
+                    }));
+                }
+                rebuild();
+                const paint = streakPaint(speed);
+                map.setPaintProperty(WIND_LAYER, 'line-opacity', paint.opacity);
+                map.setPaintProperty(WIND_LAYER, 'line-width', paint.width);
+            }
+            if (map.getLayer(WIND_LAYER)) {
+                map.setLayoutProperty(WIND_LAYER, 'visibility', show ? 'visible' : 'none');
+            }
+        } catch (e) {
+            console.warn('[wind] layer:', e?.message ?? e);
+        }
+
+        if (!show) return undefined;
+
+        map.on('moveend', rebuild);
+
+        // Motion by stepping dash patterns — Mapbox cannot tween a
+        // dasharray. Timed rather than per-frame so the rate tracks wind
+        // speed instead of the monitor's refresh rate.
+        const fps = dashStepsPerSecond(speed);
+        let step = 0;
+        const timer = fps > 0 ? setInterval(() => {
+            step = (step + 1) % DASH_SEQUENCE.length;
+            try {
+                if (mapRef.current?.getLayer(WIND_LAYER)) {
+                    mapRef.current.setPaintProperty(WIND_LAYER, 'line-dasharray', DASH_SEQUENCE[step]);
+                }
+            } catch { /* style reloading */ }
+        }, 1000 / fps) : null;
+
+        return () => {
+            map.off('moveend', rebuild);
+            if (timer) clearInterval(timer);
+        };
+    }, [mapLoaded, styleEpoch, windEnabled, observedWind?.windFromDeg, observedWind?.windSpeedMps]);
 
     // ─── REBUILD AFTER A STYLE SWAP ─────────────────────────────
     // The effect-driven layers (trees, LiDAR, point cloud, edit overlay)

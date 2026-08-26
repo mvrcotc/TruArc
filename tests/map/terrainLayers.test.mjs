@@ -250,8 +250,22 @@ describe('the ground is never distorted', () => {
     test('the settings object has no scale knob at all', () => {
         // Belt and braces with the test above: that one proves the value
         // is ignored, this one proves the UI is never offered it.
-        assert.ok(!('exaggeration' in DEFAULT_TERRAIN));
-        assert.deepEqual(Object.keys(DEFAULT_TERRAIN).sort(), ['contours', 'hillshade']);
+        //
+        // Stated as a forbidden-name check plus a whitelist rather than
+        // an exact key list. The guard is "nothing here may distort the
+        // ground" — a list of exactly the current keys would fail every
+        // time a legitimate DISPLAY toggle is added, which trains whoever
+        // hits it to widen the assertion without reading why it exists.
+        // The whitelist still makes adding a setting a deliberate act.
+        for (const forbidden of ['exaggeration', 'scale', 'verticalScale', 'zScale', 'relief']) {
+            assert.ok(!(forbidden in DEFAULT_TERRAIN),
+                `"${forbidden}" would let the UI distort the ground`);
+        }
+        const allowed = new Set(['hillshade', 'contours', 'wind']);
+        for (const key of Object.keys(DEFAULT_TERRAIN)) {
+            assert.ok(allowed.has(key),
+                `unrecognised terrain setting "${key}" — is it a display toggle, or does it change geometry?`);
+        }
     });
 
     test('shading strength is fixed, not driven by settings', () => {

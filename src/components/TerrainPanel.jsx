@@ -50,7 +50,7 @@ export default function TerrainPanel({ terrain, onUpdate, mapType, onMapTypeChan
     // Collapsed summary — the panel has to be useful without opening it.
     // Base map first, then whatever is layered over it, because the base
     // is the bigger change and the one you're most likely checking.
-    const overlays = [t.hillshade && 'Shading', t.contours && 'Contours'].filter(Boolean);
+    const overlays = [t.hillshade && 'Shading', t.contours && 'Contours', t.wind && 'Wind'].filter(Boolean);
     const summary = [type.label, ...overlays].join(' · ');
 
     return (
@@ -118,11 +118,26 @@ export default function TerrainPanel({ terrain, onUpdate, mapType, onMapTypeChan
                                 onChange={(v) => set({ contours: v })}
                             />
 
+                            <Toggle
+                                label="Wind"
+                                hint="Live streaks showing which way it's blowing, and how hard"
+                                checked={t.wind}
+                                onChange={(v) => set({ wind: v })}
+                            />
+
                             <p className="text-micro text-truarc-muted/45 leading-relaxed">
                                 Terrain is drawn at true scale. These layers
                                 change how the ground is lit and labelled,
                                 never its shape — what you see is the slope
                                 you'll throw.
+                            </p>
+
+                            <p className="text-micro text-truarc-muted/45 leading-relaxed">
+                                Wind streaks show the one reading taken for this
+                                course, so they run parallel everywhere. Real
+                                air speeds up through gaps and stalls behind
+                                trees — that isn't drawn, because nothing
+                                measured it.
                             </p>
                         </div>
                     </motion.div>

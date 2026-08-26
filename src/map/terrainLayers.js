@@ -101,6 +101,10 @@ const RELIEF_STRENGTH = 0.6;
 export const DEFAULT_TERRAIN = Object.freeze({
     hillshade: true,
     contours: true,
+    // Wind streaks (src/map/windLayer.js). On by default because the
+    // reading is measured and answers a question the player has on every
+    // tee; it draws nothing at all when no observation is available.
+    wind: true,
 });
 
 /**
