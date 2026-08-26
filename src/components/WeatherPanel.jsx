@@ -46,7 +46,7 @@
 import React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Wind, RefreshCw, CloudOff, ChevronDown } from 'lucide-react';
-import { compassLabel, describeRelativeWind, relativeWindDirection } from '../utils/weather';
+import { compassLabel, describeRelativeWind, relativeWindDirection, ADVICE_MIN_MPS } from '../utils/weather';
 
 export default function WeatherPanel({
     observed,
@@ -111,7 +111,7 @@ export default function WeatherPanel({
                             />
 
                             {/* How it plays, given the hole's direction */}
-                            {playsAs && (
+                            {playsAs && speedMps >= ADVICE_MIN_MPS && (
                                 <div className="flex items-center justify-between rounded-lg bg-white/[0.03] px-2.5 py-1.5">
                                     <span className="cad-label">On this hole</span>
                                     <span className="text-body font-medium text-truarc-text">{playsAs}</span>

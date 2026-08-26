@@ -159,8 +159,19 @@ export function compassLabel(deg) {
  * generous on the cross side because a wind 45° off the nose behaves far
  * more like a crosswind than a headwind for a disc.
  */
+/**
+ * Below this, wind does not meaningfully move a disc and naming a
+ * direction is noise dressed as advice. 2 m/s is ~4.5 mph — a breeze you
+ * feel on your face and can ignore on a 250 ft shot. Higher than
+ * windLayer's CALM_MPS on purpose: drawing streaks at 1 m/s is a true
+ * depiction of conditions, but telling someone they face a crosswind at
+ * 1 m/s implies it should change their throw, and it should not.
+ */
+export const ADVICE_MIN_MPS = 2.0;
+
 export function describeRelativeWind(relativeDeg, speedMps = 1) {
     if (!(speedMps > 0)) return 'Calm';
+    if (speedMps < ADVICE_MIN_MPS) return null;
     const d = ((relativeDeg % 360) + 360) % 360;
     if (d <= 30 || d >= 330) return 'Headwind';
     if (d >= 150 && d <= 210) return 'Tailwind';

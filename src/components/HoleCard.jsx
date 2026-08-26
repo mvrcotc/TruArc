@@ -94,18 +94,20 @@ export default function HoleCard({ hole, reading, onPlacePins, consensus }) {
                 <PinBadge consensus={consensus} />
             </div>
 
-            <div className="grid grid-cols-2 gap-2 mb-3">
-                <Stat
-                    label="PLAYS"
-                    value={`${round5(lengthFt)} ft`}
-                    hint="tee to pin, over the ground"
-                />
+            {/* Distance is NOT repeated here. The hole panel above states
+                it to a tenth of a foot from the two coordinates, which is
+                exactly as precise as that number gets; restating it
+                rounded to 5 ft put two different figures for the same
+                measurement on adjacent cards. Rounding was also the wrong
+                instinct — 5 ft granularity respects the DEM's resolution,
+                and distance does not come from the DEM. */}
+            <div className="mb-3">
                 <Stat
                     label="ELEVATION"
                     value={flat ? 'level' : `${elev > 0 ? '+' : '−'}${round5(Math.abs(elev))} ft`}
                     tone={elevTone}
                     Icon={ElevIcon}
-                    hint={flat ? 'no meaningful change' : elev > 0 ? 'basket above you' : 'basket below you'}
+                    hint={flat ? 'no meaningful change tee to pin' : elev > 0 ? 'basket above you' : 'basket below you'}
                 />
             </div>
 
@@ -121,14 +123,28 @@ export default function HoleCard({ hole, reading, onPlacePins, consensus }) {
             )}
 
             <div className="flex flex-col gap-1.5">
-                <Row
-                    Icon={visibility.blind ? EyeOff : Eye}
-                    tone={visibility.blind ? 'text-amber-300' : 'text-truarc-muted'}
-                    label={visibility.blind ? 'Blind from the tee' : 'Pin visible from the tee'}
-                    detail={visibility.blind
-                        ? `comes into view around ${round5(visibility.revealDistanceFt)} ft`
-                        : null}
-                />
+                {/* ── ONLY THE POSITIVE FINDING IS REPORTED ────────────
+                    This test reads the DEM, which resolves landform at
+                    roughly 10 m and knows nothing about trees. It can
+                    therefore say "a ridge stands between you and the
+                    pin" — a fact about the ground — but it CANNOT say
+                    "you can see the pin", which on a wooded course is
+                    mostly a question about canopy.
+
+                    Saying "Pin visible from the tee" on a hole whose own
+                    note reads "Navigate the old oaks" is the app
+                    answering a question it was not asked and getting it
+                    wrong. So a clear terrain line prints nothing, and
+                    the wording names terrain explicitly when it blocks.
+                    Canopy needs the LiDAR pipeline. */}
+                {visibility.blind && (
+                    <Row
+                        Icon={EyeOff}
+                        tone="text-amber-300"
+                        label="Terrain blocks the pin from the tee"
+                        detail={`clears around ${round5(visibility.revealDistanceFt)} ft — trees not counted`}
+                    />
+                )}
 
                 {pin?.crossDeg != null && Math.abs(pin.crossDeg) >= 2 && (
                     <Row
