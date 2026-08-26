@@ -552,8 +552,31 @@ export default function App() {
                 mode toggling must not reset their in-progress state. They
                 have no Toolbar button (see the keyboard-shortcut comment
                 above) but stay reachable by their shortcuts. */}
-            <div className="absolute top-5 left-5 z-20 pointer-events-auto flex flex-col gap-2.5 max-h-[calc(100vh-36px)] overflow-y-auto custom-scrollbar pr-0.5">
-                {/* Current Weather — positioned above everything else */}
+            <div className="absolute top-5 left-5 z-20 pointer-events-auto flex flex-col gap-2.5 max-h-[calc(100vh-36px)] w-[328px]">
+                {/* ── PINNED ──────────────────────────────────────────
+                    What the ground does — measured, not simulated.
+
+                    OUTSIDE the scroll region on purpose. It used to sit
+                    inside it, above the course browser, which meant that
+                    selecting a hole (scrolling down to the hole list)
+                    pushed this card off the top of the screen. The one
+                    panel that justifies the app was invisible at the
+                    exact moment it became relevant, and the app read as
+                    a pretty map with a list of distances.
+
+                    The browser is navigation; this is the answer. The
+                    answer does not compete for scroll with the
+                    navigation. */}
+                {activeHole && (
+                    <HoleCard
+                        hole={activeHole}
+                        reading={holeReading}
+                        onPlacePins={() => setMode('edit')}
+                        consensus={consensusFor(activeHole, activeCourse?.id)}
+                    />
+                )}
+
+                <div className="flex flex-col gap-2.5 min-h-0 overflow-y-auto custom-scrollbar pr-0.5">
                 {/* Same parsed observation WeatherPanel uses — one fetch,
                     one unit path, no way for the two to disagree. */}
                 <CurrentWeather observed={observedWeather} state={weatherState} />
@@ -564,19 +587,6 @@ export default function App() {
                     activeHole={activeHole}
                     activeCourse={activeCourse}
                 />
-
-                {/* What the ground does — measured, not simulated. Shown
-                    wherever a hole is selected and the reading resolved;
-                    it answers "how does this hole play" rather than
-                    anything about a particular throw. */}
-                {activeHole && (
-                    <HoleCard
-                        hole={activeHole}
-                        reading={holeReading}
-                        onPlacePins={() => setMode('edit')}
-                        consensus={consensusFor(activeHole, activeCourse?.id)}
-                    />
-                )}
 
                 {/* Wind lives on this side because it belongs to the
                     PLACE, not to the disc in your hand. Shown in throw
@@ -650,6 +660,7 @@ export default function App() {
                         onExport={handleEditExport}
                         onImport={handleEditImport}
                     />
+                </div>
                 </div>
             </div>
 
